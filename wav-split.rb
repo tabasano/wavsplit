@@ -11,6 +11,7 @@ require 'wav-file'
 dropShortNum=7
 extra=9
 max=1000
+threshold=200
 eachLength=8000
 minimumSilent=3400
 lenForCheck=minimumSilent*20
@@ -22,10 +23,12 @@ tlog=[]
 minimumUseLongSilentNum=false
 mkcheckfile=false
 zerosize=false
+dropSilence=false
 
 opt = OptionParser.new
 opt.on('-c',"make check file mode") {|v| mkcheckfile=true }
 opt.on('-C v',"each length for make check file mode(#{lenForCheck})") {|v| lenForCheck=v.to_i }
+opt.on('-D v',"drop silence minimum length") {|v| dropSilence=v.to_i }
 opt.on('-x',"dont save") {|v| sflag=false }
 opt.on('-z v',"insert zero sound before each part; set length") {|v| zerosize=v.to_i }
 opt.on('-e v',"extra num to omit too short spans") {|v| extra=v.to_i }
@@ -36,6 +39,7 @@ opt.on('-d v',"out dir") {|v| outdir=v }
 opt.on('-r v',"limit rate") {|v| limitrate=v.to_f }
 opt.on('-j',"out-join mode") {|v| $join=true }
 opt.on('-t v',"repeat time") {|v| reptime=v.to_i }
+opt.on('-T v',"threshold value(#{threshold})") {|v| threshold=v.to_i }
 opt.on('-l v',"each length minimum (#{eachLength})") {|v| eachLength=v.to_i }
 opt.on('-s',"show raw mode") {|v| $showraw=true }
 opt.on('-S',"minimum silence length(#{minimumSilent})") {|v| minimumSilent=v.to_i }
@@ -110,6 +114,22 @@ p [:csize,r.size,:n,num,:minstep,minstep]
   def prebig i
     (self[i]-self[i-2]).abs>(self[i+1]-self[i-1]).abs
   end
+  def dropTailByLevel v,len
+    s=self.size
+    n=0
+    s.times{|i|
+      level=self[-i-1]
+      curfl=(level<v && level>-v)
+      break if ! curfl
+      n=i
+    }
+    if len>n
+      self
+    else
+      print n,"! "
+      self[0..-n-1]
+    end
+  end
   def dropBySpanShortOne
     t=self
     sp=[]
@@ -153,7 +173,7 @@ end
 # silent: threshold
 # minimumSilent: duration of silence
 
-def checklevel wavs,silent=20,start=0,minimumSilent=1000
+def checklevel wavs,silent=20,start=0,minimumSilent=1000,drop=false
   start||=0
   minimumSilent||=1000
   sectionTopSilent=minimumSilent/2
@@ -168,6 +188,7 @@ def checklevel wavs,silent=20,start=0,minimumSilent=1000
   count=0
   curfl=false
   added=false
+  rewind=0
   tmp=0
   # Array of set [silence length, position]
   co=[]
@@ -180,7 +201,9 @@ def checklevel wavs,silent=20,start=0,minimumSilent=1000
     # ちいさくて直前がおおきい
     if ! curfl
       # ちいさくなくて直前まで小さいのの連続ならばcoに入れる
-      rewind=count>minimumSilent*2 ? minimumSilent : sectionTopSilent
+      if ! drop
+        rewind=count>minimumSilent*2 ? minimumSilent : sectionTopSilent
+      end
       co<<[count,pos-rewind] if count>minimumSilent
       count=0
     else
@@ -214,7 +237,7 @@ chime="myIntervalTone-short.wav"
 chwav=f2data(chime)[1]
 tlog<<[:wav2data,Time.now]
 
-copos=checklevel(wavs,200,st,minimumSilent)
+copos=checklevel(wavs,threshold,st,minimumSilent,dropSilence)
 longSilentPos=copos[-minimumUseLongSilentNum..-1].map{|c,pos|pos}
 p :co,copos.size,:co_sort,copos[-200..-1] if $DEBUG
 
@@ -306,10 +329,13 @@ unit=1 if $showraw
   pkd="" if ! $join
   if mkcheckfile
     tmp=en-st>lenForCheck*2 ? wavs[st...st+lenForCheck].fadeOut+wavs[en-lenForCheck...en].fadeIn : wavs[st...en]
-    wpkd=(tmpsize=tmp.size;pksize+=tmpsize;tmp).pack(bit)
   else
-    wpkd=(tmp=wavs[st...en];tmpsize=tmp.size;pksize+=tmpsize;tmp).pack(bit)
+    tmp=wavs[st...en]
   end
+  if dropSilence
+    tmp=tmp.dropTailByLevel(threshold,dropSilence)
+  end
+  wpkd=(tmpsize=tmp.size;pksize+=tmpsize;tmp).pack(bit)
   cpkd=chwav.pack(bit)
   reptime.times{|i|
     pkd+=zpkd if zerosize
