@@ -29,8 +29,9 @@ end
 
 # wav file for interval tone
 chime="myIntervalTone-short.wav"
+chunkname="note"
 mycmt=[]
-mycmt<<["note","test desu."]
+mycmt<<[chunkname,"test desu."]
 
 dropShortNum=7
 extra=9
@@ -55,9 +56,13 @@ opt.on('-c',"make check file mode") {|v| mkcheckfile=true }
 opt.on('-C v',"each length for make check file mode(#{lenForCheck})") {|v| lenForCheck=v.to_i }
 opt.on('-D v',"drop silence minimum length") {|v| dropSilence=v.to_i }
 opt.on('-x',"dont save") {|v| sflag=false }
-opt.on('-X v',"comment chunk test [note:sentence]") {|v|
+opt.on('-X v',"comment chunk test [(note:)sentence]") {|v|
+  name=chunkname
   v=~/:/
-  mycmt<<[$`,$']
+  if $&
+    name,v=$`,$'
+  end
+  mycmt<<[name,v]
 }
 opt.on('-z v',"insert zero sound before each part; set length") {|v| zerosize=v.to_i }
 opt.on('-e v',"extra num to omit too short spans") {|v| extra=v.to_i }
@@ -197,7 +202,16 @@ class Array
     self
   end
 end
-
+def wavAbs v,bps
+  if bps==8
+    (v-0x80).abs
+  else
+    v.abs
+  end
+end
+def riffle level,silent,bps
+  wavAbs(level,bps)<silent
+end
 
 # pick up series of level low points of wave stream
 # then sort them by length of silence
@@ -205,7 +219,7 @@ end
 # silent: threshold
 # minimumSilent: duration of silence
 
-def checklevel wavs,silent=20,start=0,minimumSilent=1000,drop=false
+def checklevel wavs,bps,silent=20,start=0,minimumSilent=1000,drop=false
   start||=0
   minimumSilent||=1000
   sectionTopSilent=minimumSilent/2
@@ -227,9 +241,9 @@ def checklevel wavs,silent=20,start=0,minimumSilent=1000,drop=false
   wavs.each{|i|
     (pos+=1;next) if pos<start
     level=i.ord
-    print "#{format"%04d",pos}: #{"*"*(level.abs*20/max)}       \r" if $DEBUG
+    print "#{format"%04d",pos}: #{"*"*(wavAbs(level,bps)*20/max)}       \r" if $DEBUG
     # ちいさい
-    curfl=(level<silent && level>-silent)
+    curfl=riffle(level,silent,bps)
     # ちいさくて直前がおおきい
     if ! curfl
       # ちいさくなくて直前まで小さいのの連続ならばcoに入れる
@@ -260,16 +274,35 @@ def f2data file,silent=false
   bit = 's*' if format.bitPerSample == 16 # int16_t
   bit = 'C*' if format.bitPerSample == 8
   wavs = dataChunk.data.unpack(bit) # read binary
-  [dataChunk,wavs,bit,format]
+  [wavs,bit,format.bitPerSample,format,dataChunk]
+end
+def trwav wav,bps,tbps
+  if not wav
+    false
+  elsif tbps==bps
+    wav
+  elsif bps==8 && tbps==16
+    wav.map{|i|(i-0x80)*0x100}
+  elsif bps==16 && tbps==8
+    wav.map{|i|i/0x100+0x80}
+  else
+    p [bps,tbps]
+    raise
+  end
 end
 
 tlog<<[:start,Time.now]
-dataChunk,wavs,bit,format=f2data(file)
-chimewav=File.exist?(chime) ? f2data(chime)[1] : ""
+wavs,bit,bps,format,dataChunk=f2data(file)
+chimewav,cbit,cbps,cformat,cdataChunk=File.exist?(chime) ? f2data(chime) : false
+if cbps!=bps
+  chimewav=trwav(chimewav,cbps,bps)
+end
+cpkd=chimewav ? chimewav.pack(bit) : ""
 tlog<<[:wav2data,Time.now]
 exit if pre
 
-copos=checklevel(wavs,threshold,st,minimumSilent,dropSilence)
+copos=checklevel(wavs,bps,threshold,st,minimumSilent,dropSilence)
+p [:longSilentCheck,copos.size,minimumUseLongSilentNum]
 longSilentPos=copos[-minimumUseLongSilentNum..-1].map{|c,pos|pos}
 p :co,copos.size,:co_sort,copos[-200..-1] if $DEBUG
 
@@ -368,7 +401,6 @@ unit=1 if $showraw
     tmp=tmp.dropTailByLevel(threshold,dropSilence)
   end
   wpkd=(tmpsize=tmp.size;pksize+=tmpsize;tmp).pack(bit)
-  cpkd=chimewav.pack(bit)
   reptime.times{|i|
     pkd+=zpkd if zerosize
     pkd+=wpkd
