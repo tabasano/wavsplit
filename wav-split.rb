@@ -106,27 +106,29 @@ p :save_start
 
 form="%0#{spl.size>100 ? 4 : 3}d"
 wavtmp=[]
+pkd=""
 (spl.size-1).times{|i|
   st,en=spl[i],spl[i+1]
-  one=wavs[st..en]
-  wavtmp=[] if ! $join
+  wavtmp=[]
+  pkd="" if ! $join
   reptime.times{|i|
-    wavtmp+=one
+    wavtmp+=wavs[st..en]
     wavtmp+=chwav if i<reptime-1
   }
+  pkd+=wavtmp.pack(bit)
   print (en-st)/1000,","
   num=format(form,i)
   name="#{file}_split-#{num}.wav"
   name="#{outdir}/#{File.basename(name)}" if outdir
   if sflag && ! $join
-    dataChunk.data = wavtmp.pack(bit) # reverse
+    dataChunk.data = pkd
     save name,format,dataChunk
   end
 }
 if sflag && $join
   name="#{file}_split-join.wav"
   name="#{outdir}/#{File.basename(name)}" if outdir
-  dataChunk.data = wavtmp.pack(bit) # reverse
+  dataChunk.data = pkd
   save name,format,dataChunk
 end
 
