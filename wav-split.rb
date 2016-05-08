@@ -7,6 +7,30 @@ require 'optparse'
 
 require 'rubygems'
 require 'wav-file'
+# cf. shokai.org/blog/archives/5408
+
+module WavFile
+  class BlankChunk < WavFile::Chunk
+    def initialize(name)
+      @name = name[0...4]
+      @data = ""
+      @size = @data.size
+    end
+  end
+end
+
+def cmtChunk name,cmt=""
+  exChunk=WavFile::BlankChunk.new(name)
+#unpackしないとエラーが出る。sizeがおかしくなる？
+#  exChunk.data=cmt.toutf8.unpack("C*").pack("C*")
+  exChunk.data=cmt.toutf8.force_encoding("ASCII-8BIT")
+  exChunk
+end
+
+# wav file for interval tone
+chime="myIntervalTone-short.wav"
+mycmt=[]
+mycmt<<["note","test desu."]
 
 dropShortNum=7
 extra=9
@@ -24,17 +48,23 @@ minimumUseLongSilentNum=false
 mkcheckfile=false
 zerosize=false
 dropSilence=false
+pre=false
 
 opt = OptionParser.new
 opt.on('-c',"make check file mode") {|v| mkcheckfile=true }
 opt.on('-C v',"each length for make check file mode(#{lenForCheck})") {|v| lenForCheck=v.to_i }
 opt.on('-D v',"drop silence minimum length") {|v| dropSilence=v.to_i }
 opt.on('-x',"dont save") {|v| sflag=false }
+opt.on('-X v',"comment chunk test [note:sentence]") {|v|
+  v=~/:/
+  mycmt<<[$`,$']
+}
 opt.on('-z v',"insert zero sound before each part; set length") {|v| zerosize=v.to_i }
 opt.on('-e v',"extra num to omit too short spans") {|v| extra=v.to_i }
 opt.on('-E v',"dropShort num to omit too short spans") {|v| dropShortNum=v.to_i }
 opt.on('-m v',"split num") {|v| max=v.to_i }
 opt.on('-b v',"minimum num of longSilence use") {|v| minimumUseLongSilentNum=v.to_i }
+opt.on('-B v',"interval wav file") {|v| chime=v }
 opt.on('-d v',"out dir") {|v| outdir=v }
 opt.on('-r v',"limit rate") {|v| limitrate=v.to_f }
 opt.on('-j',"out-join mode") {|v| $join=true }
@@ -43,9 +73,12 @@ opt.on('-T v',"threshold value(#{threshold})") {|v| threshold=v.to_i }
 opt.on('-l v',"each length minimum (#{eachLength})") {|v| eachLength=v.to_i }
 opt.on('-s',"show raw mode") {|v| $showraw=true }
 opt.on('-S',"minimum silence length(#{minimumSilent})") {|v| minimumSilent=v.to_i }
+opt.on('-p',"only print wav format") {|v| pre=true }
 opt.parse!(ARGV)
 
+
 minimumUseLongSilentNum||=max/2
+file,st=ARGV
 
 def midpercent first,last,mid
   span=last-first
@@ -71,7 +104,7 @@ class Array
   def midval a,b,num=1
     num=num.to_i
     m=self.select{|c,pos|pos>a && pos<b}
-p [:msize,m.size,:n,num]
+    p [:msize,m.size,:n,num]
     if m.size>num*2
       csel=num*2+(m.size-num*2)*0.2
       r=m.sort_by{|c,pos|c}[-csel.to_i..-1]
@@ -80,7 +113,7 @@ p [:msize,m.size,:n,num]
       res=[]
       lastnum=0
       min,max,minstep=15,85,100/num/5
-p [:csize,r.size,:n,num,:minstep,minstep]
+      p [:csize,r.size,:n,num,:minstep,minstep]
       r.size.times{|i|
         if per[i]>min && per[i]<max
           if res.size==0 || per[i]-per[lastnum]>minstep
@@ -165,7 +198,6 @@ p [:csize,r.size,:n,num,:minstep,minstep]
   end
 end
 
-# cf. shokai.org/blog/archives/5408
 
 # pick up series of level low points of wave stream
 # then sort them by length of silence
@@ -215,27 +247,27 @@ def checklevel wavs,silent=20,start=0,minimumSilent=1000,drop=false
 end
 
 
-file,st=ARGV
-def f2data file
-p [file]
+def f2data file,silent=false
+  p [file]
   f = open(file,"rb")
   format = WavFile::readFormat(f)
   dataChunk = WavFile::readDataChunk(f)
   f.close
-
-  puts format
+  if not silent
+    pp format
+  end
 
   bit = 's*' if format.bitPerSample == 16 # int16_t
-  bit = 'C*' if format.bitPerSample == 8 # signed char
-  wavs = dataChunk.data.unpack(bit) # read binary #.force_encoding( 'ASCII-8BIT' )
+  bit = 'C*' if format.bitPerSample == 8
+  wavs = dataChunk.data.unpack(bit) # read binary
   [dataChunk,wavs,bit,format]
 end
 
 tlog<<[:start,Time.now]
 dataChunk,wavs,bit,format=f2data(file)
-chime="myIntervalTone-short.wav"
-chwav=f2data(chime)[1]
+chimewav=File.exist?(chime) ? f2data(chime)[1] : ""
 tlog<<[:wav2data,Time.now]
+exit if pre
 
 copos=checklevel(wavs,threshold,st,minimumSilent,dropSilence)
 longSilentPos=copos[-minimumUseLongSilentNum..-1].map{|c,pos|pos}
@@ -245,7 +277,7 @@ n=copos.size
 if copos.size>max+extra+dropShortNum
   n=max+extra+dropShortNum
 end
-# sort by count => sort by position
+# sort by count => select => sort by position
 spl=copos[-n..-1].map{|c,pos|pos}.sort
 copos=copos.sort_by{|c,pos|pos}
 plus=[]
@@ -257,7 +289,7 @@ spl.each{|i|
   if i-last>limit
     n=(i-last)/limit+1
     m=copos.midval(last,i,n)
-p [last,i,:mid,midpercent(last,i,m)]
+    p [last,i,:mid,midpercent(last,i,m)]
     plus<<m
   end
   last=i
@@ -296,7 +328,7 @@ def save f,format,dataChunk
   print"save!" if $DEBUG
   open(f, "wb"){|out|
    # f.binmode
-    WavFile::write(out, format, [dataChunk])
+    WavFile::write(out, format, [dataChunk].flatten)
   }
   print"..\n" if $DEBUG
 end
@@ -336,7 +368,7 @@ unit=1 if $showraw
     tmp=tmp.dropTailByLevel(threshold,dropSilence)
   end
   wpkd=(tmpsize=tmp.size;pksize+=tmpsize;tmp).pack(bit)
-  cpkd=chwav.pack(bit)
+  cpkd=chimewav.pack(bit)
   reptime.times{|i|
     pkd+=zpkd if zerosize
     pkd+=wpkd
@@ -356,7 +388,8 @@ if sflag && $join
   name="#{file}_split-join.wav"
   name="#{outdir}/#{File.basename(name)}" if outdir
   dataChunk.data = pkd
-  save name,format,dataChunk
+  ex=mycmt.map{|t,v|cmtChunk(t,v)}
+  save name,format,[dataChunk,ex]
 end
 tlog<<[:zip,Time.now]
 
