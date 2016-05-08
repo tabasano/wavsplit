@@ -10,9 +10,12 @@ require 'wav-file'
 max=1000
 reptime=1
 sflag=true
+outdir=false
 opt = OptionParser.new
 opt.on('-x',"dont save") {|v| sflag=false }
 opt.on('-m v',"max") {|v| max=v.to_i }
+opt.on('-d v',"out dir") {|v| outdir=v }
+opt.on('-j',"out-join mode") {|v| $join=true }
 opt.on('-t v',"repeat time") {|v| reptime=v.to_i }
 opt.parse!(ARGV)
 
@@ -54,6 +57,7 @@ end
 
 file,st=ARGV
 def f2data file
+p [file]
   f = open(file,"rb")
   format = WavFile::readFormat(f)
   dataChunk = WavFile::readDataChunk(f)
@@ -87,8 +91,6 @@ if play.size>max
   }
   play=tmp
 end
-p [:size, spl.size, play.size]
-spl=play
 
 def save f,format,dataChunk
   print"save!" if $DEBUG
@@ -98,12 +100,16 @@ def save f,format,dataChunk
   }
   print"..\n" if $DEBUG
 end
+p [:size, spl.size, play.size,($join ? :join : :not_join)]
+spl=play
 p :save_start
+
 form="%0#{spl.size>100 ? 4 : 3}d"
+wavtmp=[]
 (spl.size-1).times{|i|
   st,en=spl[i],spl[i+1]
   one=wavs[st..en]
-  wavtmp=[]
+  wavtmp=[] if ! $join
   reptime.times{|i|
     wavtmp+=one
     wavtmp+=chwav if i<reptime-1
@@ -111,9 +117,16 @@ form="%0#{spl.size>100 ? 4 : 3}d"
   print (en-st)/1000,","
   num=format(form,i)
   name="#{file}_split-#{num}.wav"
-  if sflag
-    dataChunk.data = wavtmp.pack(bit)
+  name="#{outdir}/#{File.basename(name)}" if outdir
+  if sflag && ! $join
+    dataChunk.data = wavtmp.pack(bit) # reverse
     save name,format,dataChunk
   end
 }
+if sflag && $join
+  name="#{file}_split-join.wav"
+  name="#{outdir}/#{File.basename(name)}" if outdir
+  dataChunk.data = wavtmp.pack(bit) # reverse
+  save name,format,dataChunk
+end
 
