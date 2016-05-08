@@ -41,6 +41,7 @@ def checklevel wavs,silent=20,start=0,thr=100
   added=false
   minimum=6
   tmp=0
+  # Array of set [silence-length, position]
   co=[]
   wavs.each{|i|
     (pos+=1;next) if pos<start
@@ -52,7 +53,7 @@ def checklevel wavs,silent=20,start=0,thr=100
     fl=curfl
     if ! curfl
       # ちいさくなくて直前まで小さいのの連続ならばcoに入れる
-      co<<count if count>minimum
+      co<<[count,pos] if count>minimum
       count=0
     end
     if fl
@@ -60,40 +61,9 @@ def checklevel wavs,silent=20,start=0,thr=100
     end
     pos+=1
   }
-  co.sort
+  co.sort_by{|c,pos|c}
 end
 
-def show wavs,silent=20,start=0,thr=100
-  start||=0
-  thr||=100
-  puts "size: #{wavs.size}"
-  max,min=wavs.max,wavs.min
-  puts"max: #{max}"
-  puts"min: #{min}"
-  p [silent,start,thr]
-
-
-  spl=[]
-  pos=0
-  count=0
-  fl=false
-  curfl=false
-  added=false
-  tmp=0
-  wavs.each{|i|
-    (pos+=1;next) if pos<start
-    level=i.ord
-    print "#{format"%04d",pos}: #{"*"*(level.abs*20/max)}       \r" if $DEBUG
-    curfl=level<silent && level>-silent
-    (count=0;curfl=false;added=false) if not curfl
-    if curfl
-      count+=1
-      (spl<<pos;added=true) if count>thr && ! added
-    end
-    pos+=1
-  }
-  spl
-end
 
 file,st=ARGV
 def f2data file
@@ -115,14 +85,15 @@ dataChunk,wavs,bit,format=f2data(file)
 chime="myIntervalTone-short.wav"
 chwav=f2data(chime)[1]
 
-co=checklevel(wavs,200,st)
-p :co,co.size,:co_sort,co[-200..-1] if $DEBUG
+copos=checklevel(wavs,200,st)
+p :co,copos.size,:co_sort,copos[-200..-1] if $DEBUG
 
-thr=100
-if co.size>max
-  thr=co[-max]-1
+n=max
+if copos.size>max
+  n=max
 end
-spl=show(wavs,200,st,thr)
+# sort by count => sort by position
+spl=copos[-n..-1].map{|c,pos|pos}.sort
 
 p spl.size
 p spl if $DEBUG
@@ -131,6 +102,7 @@ base=1000
 (spl.size-1).times{|i|
   play<<spl[i+1] if spl[i+1]-play[-1] > base
 }
+play<<wavs.size-1 if play[-1]!=wavs.size-1
 
 
 def save f,format,dataChunk
