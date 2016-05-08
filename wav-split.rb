@@ -1,16 +1,35 @@
+#!/usr/bin/ruby
+# -*- coding: utf-8 -*-
+
+require 'kconv'
+require 'optparse'
+
 require 'rubygems'
 require 'wav-file'
 
+max=1000
+reptime=1
+sflag=true
+opt = OptionParser.new
+opt.on('-x',"dont save") {|v| sflag=false }
+opt.on('-m v',"max") {|v| max=v.to_i }
+opt.on('-t v',"repeat time") {|v| reptime=v.to_i }
+opt.parse!(ARGV)
+
+
 # cf. shokai.org/blog/archives/5408
-def show wavs,silent=20,thr=100
-  puts wavs.size
+def show wavs,silent=20,start=0,thr=100
+  start||=0
+  thr||=100
+  puts "size: #{wavs.size}"
   max,min=wavs.max,wavs.min
   puts"max: #{max}"
   puts"min: #{min}"
+  p [silent,start,thr]
 
 
   spl=[]
-  p=0
+  pos=0
   count=0
   fl=false
   curfl=false
@@ -18,65 +37,83 @@ def show wavs,silent=20,thr=100
   tmp=0
   co=[]
   wavs.each{|i|
+    (pos+=1;next) if pos<start
     level=i.ord
-    print "#{format"%04d",p}: #{"*"*(level.abs*20/max)}       \r" if $DEBUG
+    print "#{format"%04d",pos}: #{"*"*(level.abs*20/max)}       \r" if $DEBUG
     fl=true if level<silent && level>-silent && ! fl
     curfl=level<silent && level>-silent
     (co<<count if count>1;count=0;fl=false;added=false) if not curfl
     if fl && curfl
       count+=1
-      (spl<<p;added=true) if count>thr && ! added
+      (spl<<pos;added=true) if count>thr && ! added
     end
-    p+=1
+    pos+=1
   }
   [spl,co]
 end
 
-file,st,dump=ARGV
-f = open(file)
-format = WavFile::readFormat(f)
-dataChunk = WavFile::readDataChunk(f)
-f.close
+file,st=ARGV
+def f2data file
+  f = open(file,"rb")
+  format = WavFile::readFormat(f)
+  dataChunk = WavFile::readDataChunk(f)
+  f.close
 
-puts format
+  puts format
 
-bit = 's*' if format.bitPerSample == 16 # int16_t
-bit = 'c*' if format.bitPerSample == 8 # signed char
-wavs = dataChunk.data.unpack(bit) # read binary
+  bit = 's*' if format.bitPerSample == 16 # int16_t
+  bit = 'C*' if format.bitPerSample == 8 # signed char
+  wavs = dataChunk.data.unpack(bit) # read binary #.force_encoding( 'ASCII-8BIT' )
+  [dataChunk,wavs,bit,format]
+end
 
-spl,co=show(wavs,200,8)
-p spl
+dataChunk,wavs,bit,format=f2data(file)
+
+chime="myIntervalTone-short.wav"
+chwav=f2data(chime)[1]
+spl,co=show(wavs,200,st)
+p spl.size
+p spl if $DEBUG
 play=[0]
 base=1000
 (spl.size-1).times{|i|
   play<<spl[i+1] if spl[i+1]-play[-1] > base
 }
-p play
+if play.size>max
+  rate=max/play.size.to_f
+  tmp=[]
+  play.size.times{|i|
+    tmp<<play[i] if i*rate>tmp.size
+  }
+  play=tmp
+end
+p [:size, spl.size, play.size]
 spl=play
 
 def save f,format,dataChunk
-  print"save!"
+  print"save!" if $DEBUG
   open(f, "wb"){|out|
    # f.binmode
     WavFile::write(out, format, [dataChunk])
   }
-  print"..\n"
+  print"..\n" if $DEBUG
 end
-bai=12
-stock=[]
+p :save_start
+form="%0#{spl.size>100 ? 4 : 3}d"
 (spl.size-1).times{|i|
   st,en=spl[i],spl[i+1]
-  wavtmp=wavs[st..en]
-  stock<<wavtmp
-  wavtmp*=bai
-  dataChunk.data = wavtmp.pack(bit)
-  name="split-#{i}.wav"
-  save name,format,dataChunk
+  one=wavs[st..en]
+  wavtmp=[]
+  reptime.times{|i|
+    wavtmp+=one
+    wavtmp+=chwav if i<reptime-1
+  }
+  print (en-st)/1000,","
+  num=format(form,i)
+  name="#{file}_split-#{num}.wav"
+  if sflag
+    dataChunk.data = wavtmp.pack(bit)
+    save name,format,dataChunk
+  end
 }
 
-wavtmp=[]
-(stock.size*3).times{
-  wavtmp+=stock[rand(stock.size)]*(rand(3)+1)
-}
-dataChunk.data = wavtmp.pack(bit)
-save"split-rand.wav",format,dataChunk
