@@ -21,6 +21,48 @@ opt.parse!(ARGV)
 
 
 # cf. shokai.org/blog/archives/5408
+
+# pick up series of level low points of wave stream
+# then sort them by length of silence
+def checklevel wavs,silent=20,start=0,thr=100
+  start||=0
+  thr||=100
+  puts "size: #{wavs.size}"
+  max,min=wavs.max,wavs.min
+  puts"max: #{max}"
+  puts"min: #{min}"
+  p [silent,start,thr]
+
+  spl=[]
+  pos=0
+  count=0
+  fl=false
+  curfl=false
+  added=false
+  minimum=6
+  tmp=0
+  co=[]
+  wavs.each{|i|
+    (pos+=1;next) if pos<start
+    level=i.ord
+    print "#{format"%04d",pos}: #{"*"*(level.abs*20/max)}       \r" if $DEBUG
+    # ちいさい
+    curfl=(level<silent && level>-silent)
+    # ちいさくて直前がおおきい
+    fl=curfl
+    if ! curfl
+      # ちいさくなくて直前まで小さいのの連続ならばcoに入れる
+      co<<count if count>minimum
+      count=0
+    end
+    if fl
+      count+=1
+    end
+    pos+=1
+  }
+  co.sort
+end
+
 def show wavs,silent=20,start=0,thr=100
   start||=0
   thr||=100
@@ -38,21 +80,19 @@ def show wavs,silent=20,start=0,thr=100
   curfl=false
   added=false
   tmp=0
-  co=[]
   wavs.each{|i|
     (pos+=1;next) if pos<start
     level=i.ord
     print "#{format"%04d",pos}: #{"*"*(level.abs*20/max)}       \r" if $DEBUG
-    fl=true if level<silent && level>-silent && ! fl
     curfl=level<silent && level>-silent
-    (co<<count if count>1;count=0;fl=false;added=false) if not curfl
-    if fl && curfl
+    (count=0;curfl=false;added=false) if not curfl
+    if curfl
       count+=1
       (spl<<pos;added=true) if count>thr && ! added
     end
     pos+=1
   }
-  [spl,co]
+  spl
 end
 
 file,st=ARGV
@@ -72,10 +112,18 @@ p [file]
 end
 
 dataChunk,wavs,bit,format=f2data(file)
-
 chime="myIntervalTone-short.wav"
 chwav=f2data(chime)[1]
-spl,co=show(wavs,200,st)
+
+co=checklevel(wavs,200,st)
+p :co,co.size,:co_sort,co[-200..-1] if $DEBUG
+
+thr=100
+if co.size>max
+  thr=co[-max]-1
+end
+spl=show(wavs,200,st,thr)
+
 p spl.size
 p spl if $DEBUG
 play=[0]
@@ -83,14 +131,7 @@ base=1000
 (spl.size-1).times{|i|
   play<<spl[i+1] if spl[i+1]-play[-1] > base
 }
-if play.size>max
-  rate=max/play.size.to_f
-  tmp=[]
-  play.size.times{|i|
-    tmp<<play[i] if i*rate>tmp.size
-  }
-  play=tmp
-end
+
 
 def save f,format,dataChunk
   print"save!" if $DEBUG
@@ -111,11 +152,12 @@ pkd=""
   st,en=spl[i],spl[i+1]
   wavtmp=[]
   pkd="" if ! $join
+  wpkd=wavs[st..en].pack(bit)
+  cpkd=chwav.pack(bit)
   reptime.times{|i|
-    wavtmp+=wavs[st..en]
-    wavtmp+=chwav if i<reptime-1
+    pkd+=wpkd
+    pkd+=cpkd if i<reptime-1
   }
-  pkd+=wavtmp.pack(bit)
   print (en-st)/1000,","
   num=format(form,i)
   name="#{file}_split-#{num}.wav"
