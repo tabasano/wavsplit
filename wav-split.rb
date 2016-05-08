@@ -8,21 +8,27 @@ require 'optparse'
 require 'rubygems'
 require 'wav-file'
 
-dropShortNum=6
+dropShortNum=7
 extra=9
 max=1000
-minimumSilent=3000
+minimumSilent=3400
+lenForCheck=minimumSilent*20
 limitrate=1.3
 reptime=1
 sflag=true
 outdir=false
 tlog=[]
+minimumUseLongSilentNum=false
+mkcheckfile=false
 
 opt = OptionParser.new
+opt.on('-c',"make check file mode") {|v| mkcheckfile=true }
+opt.on('-C v',"each length for make check file mode(#{lenForCheck})") {|v| lenForCheck=v.to_i }
 opt.on('-x',"dont save") {|v| sflag=false }
 opt.on('-e v',"extra num to omit too short spans") {|v| extra=v.to_i }
 opt.on('-E v',"dropShort num to omit too short spans") {|v| dropShortNum=v.to_i }
 opt.on('-m v',"max") {|v| max=v.to_i }
+opt.on('-b v',"minimum num of longSilence use") {|v| minimumUseLongSilentNum=v.to_i }
 opt.on('-d v',"out dir") {|v| outdir=v }
 opt.on('-r v',"limit rate") {|v| limitrate=v.to_f }
 opt.on('-j',"out-join mode") {|v| $join=true }
@@ -31,16 +37,26 @@ opt.on('-s',"show raw mode") {|v| $showraw=true }
 opt.on('-S',"minimum silence length(#{minimumSilent})") {|v| minimumSilent=v.to_i }
 opt.parse!(ARGV)
 
+minimumUseLongSilentNum||=max/2
 
 def midpercent first,last,mid
   span=last-first
   mid.map{|i|(i-first)*100/span}
 end
 class Array
+  def fadeOut
+    s=self.size
+    c=0
+    trsize=s/3
+    self[0...(s-trsize)]+self[(s-trsize)..-1].map{|i|tmp=i*((100-c.to_f/trsize*100)/100);c+=1;tmp}
+  end
+  def fadeIn
+    self.reverse.fadeOut.reverse
+  end
   def tshow
     last=self[0][1]
     self.each{|c,t|
-      p [c,last-t]
+      p [c,format("%.3f",t-last)]
       last=t
     }
   end
@@ -49,7 +65,7 @@ class Array
     m=self.select{|c,pos|pos>a && pos<b}
 p [:msize,m.size,:n,num]
     if m.size>num*2
-      csel=num*2+(m.size-num*2)*0.4
+      csel=num*2+(m.size-num*2)*0.2
       r=m.sort_by{|c,pos|c}[-csel.to_i..-1]
       r=r.map{|c,pos|pos}.sort
       per=midpercent(a,b,r)
@@ -90,7 +106,7 @@ p [:csize,r.size,:n,num,:minstep,minstep]
   def prebig i
     (self[i]-self[i-2]).abs>(self[i+1]-self[i-1]).abs
   end
-  def dropBySpanShortOne n=1
+  def dropBySpanShortOne
     t=self
     sp=[]
     (t.size-1).times{|i|
@@ -186,13 +202,15 @@ p [file]
   wavs = dataChunk.data.unpack(bit) # read binary #.force_encoding( 'ASCII-8BIT' )
   [dataChunk,wavs,bit,format]
 end
-tlog<<[:f2data,Time.now]
+
+tlog<<[:start,Time.now]
 dataChunk,wavs,bit,format=f2data(file)
 chime="myIntervalTone-short.wav"
 chwav=f2data(chime)[1]
-tlog<<[:checklevel,Time.now]
+tlog<<[:f2data,Time.now]
 
 copos=checklevel(wavs,200,st,minimumSilent)
+longSilentPos=copos[-minimumUseLongSilentNum..-1].map{|c,pos|pos}
 p :co,copos.size,:co_sort,copos[-200..-1] if $DEBUG
 
 n=copos.size
@@ -205,7 +223,7 @@ copos=copos.sort_by{|c,pos|pos}
 plus=[]
 limit=wavs.size/max*limitrate
 last=0
-tlog<<[:midval_start,Time.now]
+tlog<<[:checklevel,Time.now]
 
 spl.each{|i|
   if i-last>limit
@@ -216,13 +234,14 @@ p [last,i,:mid,midpercent(last,i,m)]
   end
   last=i
 }
+tlog<<[:addMidVal2longSpan,Time.now]
+
 p [:limit,limit,plus]
 plus.flatten!
 dropShortNum+=plus.size
 spl+=plus
 spl.sort!
 
-tlog<<[:basecheck,Time.now]
 
 p [:copos,copos.size,:spl,spl.size]
 p spl if $DEBUG
@@ -236,7 +255,8 @@ base=1000
 rest=wavs.size-play[-1][0]
 play<<[wavs.size,rest] if play[-1][0]!=wavs.size
 
-tlog<<[:minus,Time.now]
+tlog<<[:basecheck,Time.now]
+
 # reject too short silence by length order
 minus=play.sort_by{|po,step|step}[0..extra]
 p [:extra,extra],minus
@@ -257,13 +277,14 @@ p [:size, spl.size, play.size,($join ? :join : :not_join)]
 tmp=play.map{|pos,step|step}
 spzero,spmin,splast,spmax=tmp[0],tmp[1],tmp[-2],tmp[-1]
 p [:span_minmax,spmin,spmax,spzero,splast]
+tlog<<[:minus,Time.now]
 
 # drop too short spans
-tlog<<[:dropShort,Time.now]
-spl=play.map{|pos,step|pos/2*2}.dropBySpanShort(dropShortNum)
+spl=play.map{|pos,step|pos}.dropBySpanShort(dropShortNum)+longSilentPos
+spl=spl.sort.uniq.map{|i|i/2*2}
 p [:spl]+spl.steps.map{|i|i/1000}+[:size,spl.size]
+tlog<<[:dropShort,Time.now]
 
-tlog<<[:zip,Time.now]
 form="%0#{spl.size>100 ? 4 : 3}d"
 wavtmp=[]
 pkd=""
@@ -277,7 +298,12 @@ unit=1 if $showraw
   wavtmp=[]
   tmpsize=0
   pkd="" if ! $join
-  wpkd=(tmp=wavs[st...en];tmpsize=tmp.size;pksize+=tmpsize;tmp).pack(bit)
+  if mkcheckfile
+    tmp=en-st>lenForCheck*2 ? wavs[st...st+lenForCheck].fadeOut+wavs[en-lenForCheck...en].fadeIn : wavs[st...en]
+    wpkd=(tmpsize=tmp.size;pksize+=tmpsize;tmp).pack(bit)
+  else
+    wpkd=(tmp=wavs[st...en];tmpsize=tmp.size;pksize+=tmpsize;tmp).pack(bit)
+  end
   cpkd=chwav.pack(bit)
   reptime.times{|i|
     pkd+=wpkd
@@ -299,6 +325,7 @@ if sflag && $join
   dataChunk.data = pkd
   save name,format,dataChunk
 end
-tlog<<[:end,Time.now]
+tlog<<[:zip,Time.now]
+
 p log
 tlog.tshow
