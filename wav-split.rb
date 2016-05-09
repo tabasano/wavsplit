@@ -69,7 +69,7 @@ opt.on('-e v',"extra num to omit too short spans") {|v| extra=v.to_i }
 opt.on('-E v',"dropShort num to omit too short spans") {|v| dropShortNum=v.to_i }
 opt.on('-m v',"split num") {|v| max=v.to_i }
 opt.on('-b v',"minimum num of longSilence use") {|v| minimumUseLongSilentNum=v.to_i }
-opt.on('-B v',"interval wav file") {|v| chime=v }
+opt.on('-B v',"(bell tone) interval wav file name") {|v| chime=v }
 opt.on('-d v',"out dir") {|v| outdir=v }
 opt.on('-r v',"limit rate") {|v| limitrate=v.to_f }
 opt.on('-j',"out-join mode") {|v| $join=true }
@@ -202,15 +202,11 @@ class Array
     self
   end
 end
-def wavAbs v,bps
-  if bps==8
-    (v-0x80).abs
-  else
-    v.abs
-  end
-end
 def riffle level,silent,bps
-  wavAbs(level,bps)<silent
+  if bps==8
+    level=level-0x80
+  end
+  level.abs<silent
 end
 
 # pick up series of level low points of wave stream
@@ -243,7 +239,7 @@ def checklevel wavs,bps,silent=20,start=0,minimumSilent=1000,drop=false
     level=i.ord
     print "#{format"%04d",pos}: #{"*"*(wavAbs(level,bps)*20/max)}       \r" if $DEBUG
     # ちいさい
-    curfl=riffle(level,silent,bps)
+    curfl=(bps==8 ? (level-0x80).abs<silent : level.abs<silent)
     # ちいさくて直前がおおきい
     if ! curfl
       # ちいさくなくて直前まで小さいのの連続ならばcoに入れる
