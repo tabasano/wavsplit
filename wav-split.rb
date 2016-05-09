@@ -100,11 +100,12 @@ class Array
     self.reverse.fadeOut.reverse
   end
   def timeshow
-    last=self[0][1]
+    last=self.first[1]
     self.each{|c,t|
       p [c,format("%.3f",t-last)]
       last=t
     }
+    p [:total,format("%.3f",self.last[1]-self.first[1])]
   end
   def midval a,b,num=1
     num=num.to_i
@@ -375,7 +376,7 @@ tlog<<[:dropShort,Time.now]
 
 form="%0#{spl.size>100 ? 4 : 3}d"
 wavtmp=[]
-pkd=""
+pkd=[]
 log=[]
 log<<[:wav,wavs.size]
 pksize=0
@@ -386,8 +387,7 @@ unit=1 if $showraw
 (spl.size-1).times{|i|
   st,en=spl[i],spl[i+1]
   wavtmp=[]
-  tmpsize=0
-  pkd="" if ! $join
+  pkd=[] if ! $join
   if mkcheckfile
     tmp=en-st>lenForCheck*2 ? wavs[st...st+lenForCheck].fadeOut+wavs[en-lenForCheck...en].fadeIn : wavs[st...en]
   else
@@ -396,18 +396,19 @@ unit=1 if $showraw
   if dropSilence
     tmp=tmp.dropTailByLevel(threshold,dropSilence)
   end
-  wpkd=(tmpsize=tmp.size;pksize+=tmpsize;tmp).pack(bit)
+  wpkd=tmp.pack(bit)
+  pksize+=tmp.size
   reptime.times{|i|
-    pkd+=zpkd if zerosize
-    pkd+=wpkd
-    pkd+=cpkd if i<reptime-1
+    pkd<<zpkd if zerosize
+    pkd<<wpkd
+    pkd<<cpkd if i<reptime-1
   }
-  print tmpsize/unit,","
+  print tmp.size/unit,","
   num=format(form,i)
   name="#{file}_split-#{num}.wav"
   name="#{outdir}/#{File.basename(name)}" if outdir
   if sflag && ! $join
-    dataChunk.data = pkd
+    dataChunk.data = pkd.join
     save name,format,dataChunk
   end
 }
@@ -415,7 +416,7 @@ log<<[:pksize,pksize]
 if sflag && $join
   name="#{file}_split-join.wav"
   name="#{outdir}/#{File.basename(name)}" if outdir
-  dataChunk.data = pkd
+  dataChunk.data = pkd.join
   ex=mycmt.map{|t,v|cmtChunk(t,v)}
   save name,format,[dataChunk,ex]
 end

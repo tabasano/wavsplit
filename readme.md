@@ -11,7 +11,7 @@ usage:
  > ruby wav-split.rb -m 42 -t 3 -j sound.wav
 ```
 
-split sound.wav to about max 42 parts, repeat 3 times, then join them.
+split sound.wav to about max 42 parts, repeat them 3 times, then join them.
 
 
 ```
