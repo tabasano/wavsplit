@@ -50,6 +50,8 @@ mkcheckfile=false
 zerosize=false
 dropSilence=false
 pre=false
+$silent=true
+showspent=false
 
 opt = OptionParser.new
 opt.on('-c',"make check file mode") {|v| mkcheckfile=true }
@@ -79,6 +81,10 @@ opt.on('-l v',"each length minimum (#{eachLength})") {|v| eachLength=v.to_i }
 opt.on('-s',"show raw mode") {|v| $showraw=true }
 opt.on('-S',"minimum silence length(#{minimumSilent})") {|v| minimumSilent=v.to_i }
 opt.on('-p',"only print wav format") {|v| pre=true }
+opt.on('-P v',"print log;[1,2]") {|v|
+  showspent=true
+  $silent=false if v.to_i>1
+}
 opt.parse!(ARGV)
 
 
@@ -88,6 +94,14 @@ file,st=ARGV
 def midpercent first,last,mid
   span=last-first
   mid.map{|i|(i-first)*100/span}
+end
+def lshow *d
+  return if $silent
+  print *d
+end
+def lp *d
+  return if $silent
+  p d
 end
 class Array
   def fadeOut
@@ -110,7 +124,7 @@ class Array
   def midval a,b,num=1
     num=num.to_i
     m=self.select{|c,pos|pos>a && pos<b}
-    p [:msize,m.size,:n,num]
+    lshow [:msize,m.size,:n,num]
     if m.size>num*2
       csel=num*2+(m.size-num*2)*0.2
       r=m.sort_by{|c,pos|c}[-csel.to_i..-1]
@@ -119,18 +133,18 @@ class Array
       res=[]
       lastnum=0
       min,max,minstep=15,85,100/num/5
-      p [:csize,r.size,:n,num,:minstep,minstep]
+      lp [:csize,r.size,:n,num,:minstep,minstep]
       r.size.times{|i|
         if per[i]>min && per[i]<max
           if res.size==0 || per[i]-per[lastnum]>minstep
             res<<r[i]
             lastnum=i
-            print :o,per[i]
+            lshow :o,per[i]
           else
-            print :s,per[i]
+            lshow :s,per[i]
           end
         else
-          print :x,per[i]
+          lshow :x,per[i]
         end
       }
       res=r if res.size<num
@@ -165,7 +179,7 @@ class Array
     if len>n
       self
     else
-      print n,"! "
+      lshow "#{n}! "
       self[0..-n-1]
     end
   end
@@ -203,6 +217,13 @@ class Array
     self
   end
 end
+def wavAbs v,bps
+  if bps==8
+    (v-0x80).abs
+  else
+    v.abs
+  end
+end
 def riffle level,silent,bps
   if bps==8
     level=level-0x80
@@ -220,11 +241,11 @@ def checklevel wavs,bps,silent=20,start=0,minimumSilent=1000,drop=false
   start||=0
   minimumSilent||=1000
   sectionTopSilent=minimumSilent/2
-  puts "size: #{wavs.size}"
+  lp "size: #{wavs.size}"
   max,min=wavs.max,wavs.min
-  puts"max: #{max}"
-  puts"min: #{min}"
-  p [silent,start,minimumSilent]
+  lp "max: #{max}"
+  lp "min: #{min}"
+  lp [silent,start,minimumSilent]
 
   spl=[]
   pos=0
@@ -259,13 +280,13 @@ end
 
 
 def f2data file,silent=false
-  p [file]
+  lp [file]
   f = open(file,"rb")
   format = WavFile::readFormat(f)
   dataChunk = WavFile::readDataChunk(f)
   f.close
   if not silent
-    pp format
+    lp format
   end
 
   bit = 's*' if format.bitPerSample == 16 # int16_t
@@ -299,7 +320,7 @@ tlog<<[:wav2data,Time.now]
 exit if pre
 
 copos=checklevel(wavs,bps,threshold,st,minimumSilent,dropSilence)
-p [:longSilentCheck,copos.size,minimumUseLongSilentNum]
+lp [:longSilentCheck,copos.size,minimumUseLongSilentNum]
 longSilentPos=copos[-minimumUseLongSilentNum..-1].map{|c,pos|pos}
 p :co,copos.size,:co_sort,copos[-200..-1] if $DEBUG
 
@@ -319,21 +340,21 @@ spl.each{|i|
   if i-last>limit
     n=(i-last)/limit+1
     m=copos.midval(last,i,n)
-    p [last,i,:mid,midpercent(last,i,m)]
+    lp [last,i,:mid,midpercent(last,i,m)]
     plus<<m
   end
   last=i
 }
 tlog<<[:insertMidValueIntoTooLongSpan,Time.now]
 
-p [:limit,limit,plus]
+lp [:limit,limit,plus]
 plus.flatten!
 dropShortNum+=plus.size
 spl+=plus
 spl.sort!
 
 
-p [:copos,copos.size,:spl,spl.size]
+lp [:copos,copos.size,:spl,spl.size]
 p spl if $DEBUG
 # [position,step from previous]
 play=[[0,0]]
@@ -348,11 +369,11 @@ tlog<<[:basecheck,Time.now]
 
 # reject too short silence by length order
 minus=play.sort_by{|po,step|step}[0..extra]
-p [:extra,extra],minus
+lp [:extra,extra,minus]
 minus=minus.map{|po,st|po}-[0,wavs.size]
 play.reject!{|po,st|minus.member?(po)}
-p [:max,play[-1],play[-2],"...",play[1],play[0]]
-p [:pla]+play.map{|i,st|i}.steps.map{|i|i/1000}+[:size,play.size]
+lp [:max,play[-1],play[-2],"...",play[1],play[0]]
+lp [:pla]+play.map{|i,st|i}.steps.map{|i|i/1000}+[:size,play.size]
 
 def save f,format,dataChunk
   print"save!" if $DEBUG
@@ -362,16 +383,16 @@ def save f,format,dataChunk
   }
   print"..\n" if $DEBUG
 end
-p [:size, spl.size, play.size,($join ? :join : :not_join)]
+lp [:size, spl.size, play.size,($join ? :join : :not_join)]
 tmp=play.map{|pos,step|step}
 spzero,spmin,splast,spmax=tmp[0],tmp[1],tmp[-2],tmp[-1]
-p [:span_minmax,spmin,spmax,spzero,splast]
+lp [:span_minmax,spmin,spmax,spzero,splast]
 tlog<<[:minus,Time.now]
 
 # drop too short spans
 spl=play.map{|pos,step|pos}.dropBySpanShort(dropShortNum)+longSilentPos
 spl=spl.sort.uniq.map{|i|i/2*2}
-p [:spl]+spl.steps.map{|i|i/1000}+[:size,spl.size]
+lp [:spl]+spl.steps.map{|i|i/1000}+[:size,spl.size]
 tlog<<[:dropShort,Time.now]
 
 form="%0#{spl.size>100 ? 4 : 3}d"
@@ -403,7 +424,7 @@ unit=1 if $showraw
     pkd<<wpkd
     pkd<<cpkd if i<reptime-1
   }
-  print tmp.size/unit,","
+  lshow tmp.size/unit,","
   num=format(form,i)
   name="#{file}_split-#{num}.wav"
   name="#{outdir}/#{File.basename(name)}" if outdir
@@ -422,5 +443,5 @@ if sflag && $join
 end
 tlog<<[:zip,Time.now]
 
-p log
-tlog.timeshow
+lp log
+tlog.timeshow if showspent || ! $silent
