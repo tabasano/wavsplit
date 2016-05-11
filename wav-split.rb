@@ -248,9 +248,11 @@ def checklevel wavs,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
   minimumSilent||=1000
   sectionTopSilent=minimumSilent/2
   lp "size: #{wavs.size}"
-  max,min=wavs.max,wavs.min
-  lp "max: #{max}"
-  lp "min: #{min}"
+  if $DEBUG
+    max,min=wavs.max,wavs.min
+    lp "max: #{max}"
+    lp "min: #{min}"
+  end
   lp [silent,start,minimumSilent]
   steplong=format.bytePerSec/200+1
   stepshort=15 # format.bytePerSec/800+1
@@ -275,10 +277,10 @@ def checklevel wavs,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
     i=wavs[pos]
     level=i.ord
     print "#{format"%04d",pos}: #{"*"*(wavAbs(level,bps)*20/max)}       \r" if $DEBUG
-    # ちいさい
+    # silent or not
     curfl=(bps==8 ? (level-0x80).abs<silent : level.abs<silent)
     if ! curfl
-      # ちいさくなくて直前まで小さいのの連続ならばcoに入れる
+      # add to position list if current is over silent threshold and preceding series of data is not.
       if drop
         rewind=skipNum
       else
