@@ -30,8 +30,8 @@ end
 # wav file for interval tone
 chime="myIntervalTone-short.wav"
 chunkname="note"
-mycmt=[]
-mycmt<<[chunkname,"test desu."]
+mycmtChunk=[]
+#mycmt<<[chunkname,"test desu."]
 
 dropShortNum=7
 extra=9
@@ -54,37 +54,40 @@ $silent=true
 showspent=false
 
 opt = OptionParser.new
-opt.on('-c',"make check file mode") {|v| mkcheckfile=true }
-opt.on('-C v',"each length for make check file mode(#{lenForCheck})") {|v| lenForCheck=v.to_i }
-opt.on('-D v',"drop silence minimum length") {|v| dropSilence=v.to_i }
-opt.on('-x',"dont save") {|v| sflag=false }
-opt.on('-X v',"comment chunk test [(note:)sentence]") {|v|
-  name=chunkname
-  v=~/:/
-  if $&
-    name,v=$`,$'
-  end
-  mycmt<<[name,v]
-}
-opt.on('-z v',"insert zero sound before each part; set length") {|v| zerosize=v.to_i }
-opt.on('-e v',"extra num to omit too short spans") {|v| extra=v.to_i }
-opt.on('-E v',"dropShort num to omit too short spans") {|v| dropShortNum=v.to_i }
-opt.on('-m v',"split num") {|v| max=v.to_i }
 opt.on('-b v',"minimum num of longSilence use") {|v| minimumUseLongSilentNum=v.to_i }
 opt.on('-B v',"(bell tone) interval wav file name") {|v| chime=v }
+opt.on('-c',"make check file mode") {|v| mkcheckfile=true }
+opt.on('-C v',"each length for make check file mode(#{lenForCheck})") {|v| lenForCheck=v.to_i }
 opt.on('-d v',"out dir") {|v| outdir=v }
-opt.on('-r v',"limit rate") {|v| limitrate=v.to_f }
+opt.on('-D v',"drop silence minimum length") {|v| dropSilence=v.to_i }
+opt.on('-e v',"extra num to omit too short spans") {|v| extra=v.to_i }
+opt.on('-E v',"dropShort num to omit too short spans") {|v| dropShortNum=v.to_i }
 opt.on('-j',"out-join mode") {|v| $join=true }
-opt.on('-t v',"repeat time") {|v| reptime=v.to_i }
-opt.on('-T v',"threshold value(#{threshold})") {|v| threshold=v.to_i }
 opt.on('-l v',"each length minimum (#{eachLength})") {|v| eachLength=v.to_i }
-opt.on('-s',"show raw mode") {|v| $showraw=true }
-opt.on('-S',"minimum silence length(#{minimumSilent})") {|v| minimumSilent=v.to_i }
+opt.on('-m v',"split num") {|v| max=v.to_i }
+opt.on('-n v',"add note chunk [sentence]") {|v|
+  mycmtChunk<<[chunkname,v]
+}
 opt.on('-p',"only print wav format") {|v| pre=true }
 opt.on('-P v',"print log;[1,2]") {|v|
-  showspent=true
-  $silent=false if v.to_i>1
+  case v.to_i
+  when 0
+    showspent=false
+    $silent=true
+  when 1
+    showspent=true
+    $silent=true
+  else
+    $silent=false
+  end
 }
+opt.on('-r v',"limit rate") {|v| limitrate=v.to_f }
+opt.on('-s',"show raw mode") {|v| $showraw=true }
+opt.on('-S',"minimum silence length(#{minimumSilent})") {|v| minimumSilent=v.to_i }
+opt.on('-t v',"repeat time") {|v| reptime=v.to_i }
+opt.on('-T v',"threshold value(#{threshold})") {|v| threshold=v.to_i }
+opt.on('-x',"dont save") {|v| sflag=false }
+opt.on('-z v',"insert zero sound before each part; set length") {|v| zerosize=v.to_i }
 opt.parse!(ARGV)
 
 
@@ -217,6 +220,9 @@ class Array
     self
   end
 end
+def zeroby bps
+  bps==8 ? 0x80 : 0
+end
 def wavAbs v,bps
   if bps==8
     (v-0x80).abs
@@ -237,7 +243,7 @@ end
 # silent: threshold
 # minimumSilent: duration of silence
 
-def checklevel wavs,bps,silent=20,start=0,minimumSilent=1000,drop=false
+def checklevel wavs,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
   start||=0
   minimumSilent||=1000
   sectionTopSilent=minimumSilent/2
@@ -246,6 +252,8 @@ def checklevel wavs,bps,silent=20,start=0,minimumSilent=1000,drop=false
   lp "max: #{max}"
   lp "min: #{min}"
   lp [silent,start,minimumSilent]
+  steplong=format.bytePerSec/200+1
+  stepshort=15 # format.bytePerSec/800+1
 
   spl=[]
   pos=0
@@ -256,25 +264,39 @@ def checklevel wavs,bps,silent=20,start=0,minimumSilent=1000,drop=false
   tmp=0
   # Array of set [silence length, position]
   co=[]
-  wavs.each{|i|
-    (pos+=1;next) if pos<start
+  checked=0
+  num=0
+  skipNumFast=stepshort+rand(4)
+  skipNumSlow=steplong+rand(4)
+  skipNum=skipNumSlow
+  lp [:skipNum,skipNumFast,skipNumSlow]
+  pos=start if pos<start
+  while pos<wavs.size
+    i=wavs[pos]
     level=i.ord
     print "#{format"%04d",pos}: #{"*"*(wavAbs(level,bps)*20/max)}       \r" if $DEBUG
     # ちいさい
     curfl=(bps==8 ? (level-0x80).abs<silent : level.abs<silent)
-    # ちいさくて直前がおおきい
     if ! curfl
       # ちいさくなくて直前まで小さいのの連続ならばcoに入れる
-      if ! drop
+      if drop
+        rewind=skipNum
+      else
         rewind=count>minimumSilent*2 ? minimumSilent : sectionTopSilent
       end
-      co<<[count,pos-rewind] if count>minimumSilent
+      if count>minimumSilent
+        co<<[count,pos-rewind]
+        skipNum=skipNumFast+rand(2)
+      end
       count=0
     else
-      count+=1
+      skipNum=skipNumSlow
+      count+=skipNumSlow
     end
-    pos+=1
-  }
+    pos+=skipNum
+    checked+=1
+  end
+  lp [:checked_data,format("%.4f%",checked.to_f*100/(wavs.size-start))]
   co.sort_by{|c,pos|c}
 end
 
@@ -319,7 +341,7 @@ cpkd=chimewav ? chimewav.pack(bit) : ""
 tlog<<[:wav2data,Time.now]
 exit if pre
 
-copos=checklevel(wavs,bps,threshold,st,minimumSilent,dropSilence)
+copos=checklevel(wavs,bps,format,threshold,st,minimumSilent,dropSilence)
 lp [:longSilentCheck,copos.size,minimumUseLongSilentNum]
 longSilentPos=copos[-minimumUseLongSilentNum..-1].map{|c,pos|pos}
 p :co,copos.size,:co_sort,copos[-200..-1] if $DEBUG
@@ -402,7 +424,7 @@ log=[]
 log<<[:wav,wavs.size]
 pksize=0
 zpkd=""
-zpkd=([0]*zerosize).pack(bit) if zerosize
+zpkd=([zeroby(bps)]*zerosize).pack(bit) if zerosize
 unit=1000
 unit=1 if $showraw
 (spl.size-1).times{|i|
@@ -438,7 +460,7 @@ if sflag && $join
   name="#{file}_split-join.wav"
   name="#{outdir}/#{File.basename(name)}" if outdir
   dataChunk.data = pkd.join
-  ex=mycmt.map{|t,v|cmtChunk(t,v)}
+  ex=mycmtChunk.map{|t,v|cmtChunk(t,v)}
   save name,format,[dataChunk,ex]
 end
 tlog<<[:zip,Time.now]
