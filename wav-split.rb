@@ -52,6 +52,7 @@ dropSilence=false
 pre=false
 $silent=true
 showspent=false
+useOrg=true
 
 opt = OptionParser.new
 opt.on('-b v',"minimum num of longSilence use") {|v| minimumUseLongSilentNum=v.to_i }
@@ -86,7 +87,8 @@ opt.on('-s',"show raw mode") {|v| $showraw=true }
 opt.on('-S',"minimum silence length(#{minimumSilent})") {|v| minimumSilent=v.to_i }
 opt.on('-t v',"repeat time") {|v| reptime=v.to_i }
 opt.on('-T v',"threshold value(#{threshold})") {|v| threshold=v.to_i }
-opt.on('-x',"dont save") {|v| sflag=false }
+opt.on('-U',"don't use unpacked if possible") {|v| useOrg=false }
+opt.on('-x',"don't save") {|v| sflag=false }
 opt.on('-z v',"insert zero sound before each part; set length") {|v| zerosize=v.to_i }
 opt.parse!(ARGV)
 
@@ -119,10 +121,10 @@ class Array
   def timeshow
     last=self.first[1]
     self.each{|c,t|
-      p [c,format("%.3f",t-last)]
+      p [c,t-last]
       last=t
     }
-    p [:total,format("%.3f",self.last[1]-self.first[1])]
+    p [:total,self.last[1]-self.first[1]]
   end
   def midval a,b,num=1
     num=num.to_i
@@ -170,7 +172,7 @@ class Array
   def prebig i
     (self[i]-self[i-2]).abs>(self[i+1]-self[i-1]).abs
   end
-  def dropTailByLevel v,len
+  def dropTailPosByLevel v,len
     s=self.size
     n=0
     s.times{|i|
@@ -180,10 +182,10 @@ class Array
       n=i
     }
     if len>n
-      self
+      s
     else
       lshow "#{n}! "
-      self[0..-n-1]
+      (s-1-n)/2*2
     end
   end
   def dropBySpanShortOne
@@ -315,7 +317,9 @@ def f2data file,silent=false
 
   bit = 's*' if format.bitPerSample == 16 # int16_t
   bit = 'C*' if format.bitPerSample == 8
-  wavs = dataChunk.data.unpack(bit) # read binary
+  st=Time.now
+    wavs = dataChunk.data.unpack(bit) # read binary
+  p [:_unpack,Time.now-st] if ! $silent
   [wavs,bit,format.bitPerSample,format,dataChunk]
 end
 def trwav wav,bps,tbps
@@ -407,6 +411,9 @@ def save f,format,dataChunk
   }
   print"..\n" if $DEBUG
 end
+def cdpos pos,bps
+  pos*(bps/8)
+end
 lp [:size, spl.size, play.size,($join ? :join : :not_join)]
 tmp=play.map{|pos,step|step}
 spzero,spmin,splast,spmax=tmp[0],tmp[1],tmp[-2],tmp[-1]
@@ -434,14 +441,20 @@ unit=1 if $showraw
   wavtmp=[]
   pkd=[] if ! $join
   if mkcheckfile
+    useOrg=false
     tmp=en-st>lenForCheck*2 ? wavs[st...st+lenForCheck].fadeOut+wavs[en-lenForCheck...en].fadeIn : wavs[st...en]
   else
     tmp=wavs[st...en]
   end
   if dropSilence
-    tmp=tmp.dropTailByLevel(threshold,dropSilence)
+    en=st+tmp.dropTailPosByLevel(threshold,dropSilence)
+    tmp=wavs[st...en]
   end
-  wpkd=tmp.pack(bit)
+  if useOrg
+    wpkd=dataChunk.data[cdpos(st,bps)...cdpos(en,bps)]
+  else
+    wpkd=tmp.pack(bit)
+  end
   pksize+=tmp.size
   reptime.times{|i|
     pkd<<zpkd if zerosize
