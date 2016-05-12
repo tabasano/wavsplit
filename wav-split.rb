@@ -339,12 +339,18 @@ end
 
 tlog<<[:start,Time.now]
 wavs,bit,bps,format,dataChunk=f2data(file)
-chimewav,cbit,cbps,cformat,cdataChunk=File.exist?(chime) ? f2data(chime) : false
-if cbps!=bps
-  chimewav=trwav(chimewav,cbps,bps)
-end
-cpkd=chimewav ? chimewav.pack(bit) : ""
 tlog<<[:wav2data,Time.now]
+chimewav,cbit,cbps,cformat,cdataChunk=File.exist?(chime) ? f2data(chime) : false
+cpkd=""
+if chimewav
+  if cbps!=bps
+    chimewav=trwav(chimewav,cbps,bps)
+    cpkd=chimewav.pack(bit)
+  else
+    cpkd=cdataChunk.data
+  end
+end
+tlog<<[:chWav2data,Time.now]
 exit if pre
 
 copos=checklevel(wavs,bps,format,threshold,st,minimumSilent,dropSilence)
@@ -436,6 +442,7 @@ zpkd=""
 zpkd=([zeroby(bps)]*zerosize).pack(bit) if zerosize
 unit=1000
 unit=1 if $showraw
+bc=WavFile::BlankChunk.new("data")
 (spl.size-1).times{|i|
   st,en=spl[i],spl[i+1]
   wavtmp=[]
@@ -466,17 +473,18 @@ unit=1 if $showraw
   name="#{file}_split-#{num}.wav"
   name="#{outdir}/#{File.basename(name)}" if outdir
   if sflag && ! $join
-    dataChunk.data = pkd.join
-    save name,format,dataChunk
+    bc.data = pkd.join
+lshow [:one,bc.size,num]
+    save name,format,bc
   end
 }
 log<<[:pksize,pksize]
 if sflag && $join
   name="#{file}_split-join.wav"
   name="#{outdir}/#{File.basename(name)}" if outdir
-  dataChunk.data = pkd.join
+  bc.data = pkd.join
   ex=mycmtChunk.map{|t,v|cmtChunk(t,v)}
-  save name,format,[dataChunk,ex]
+  save name,format,[bc,ex]
 end
 tlog<<[:zip,Time.now]
 
