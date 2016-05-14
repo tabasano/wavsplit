@@ -24,7 +24,7 @@ id= format.id
 
 dataChunk.setFormat(format)
 wavs = dataChunk.unpackAll
-wavs=wavs.map{|v|dataChunk.pack(v*rate)}.flatten
+wavs=wavs.map{|v|dataChunk.boost(v,rate)}.flatten
 
 
 def save f,format,dataChunk

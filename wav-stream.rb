@@ -97,6 +97,8 @@ module WavFile
       @bps= format.bitPerSample
       @single=@bps/8
       @id= format.id
+      @center=0
+      @unsigned=(@bps==8)
       @unpack=:unpack0
       @pack=:pack0
       case @bps
@@ -104,6 +106,9 @@ module WavFile
         @bit = 's*'
       when 8
         @bit = 'C*'
+        @center=0x80
+        @min=0
+        @max=0xff
       when 32
         if @id==3
           @bit = 'e*'
@@ -146,6 +151,15 @@ module WavFile
     end
     def unpackAll
       self.unpack(@data)
+    end
+    def boost d,rate
+      d=(@unsigned ? (d-@center)*rate+@center : d*rate)
+      d=[[d,@min].max,@max].min if defined? @max
+      self.pack(d)
+    end
+    def boostNoAdjust d,rate
+      d=(@unsigned ? (d-@center)*rate+@center : d*rate)
+      self.pack(d)
     end
   end
 end
