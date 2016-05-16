@@ -258,6 +258,11 @@ def checklevel wavs,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
   lp [silent,start,minimumSilent]
   steplong=format.bytePerSec/200+1
   stepshort=15 # format.bytePerSec/800+1
+  # check at first current data then from far to near data in checklist, fibonacci-like
+  checklist=(n=0.7;[*0..15].map{|i|n=n*1.46+1;n.round}.reverse).unshift(0,1)
+  checkmax=checklist.max
+  checknumMin=3
+  lp [:fiblikelist,checklist]
 
   spl=[]
   pos=0
@@ -275,12 +280,47 @@ def checklevel wavs,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
   skipNum=skipNumSlow
   lp [:skipNum,skipNumFast,skipNumSlow]
   pos=start if pos<start
-  while pos<wavs.size
-    i=wavs[pos]
-    level=i.ord
-    print "#{format"%04d",pos}: #{"*"*(wavAbs(level,bps)*20/max)}       \r" if $DEBUG
+  pluslogz=0
+  pluslogd=0
+  pluslogw=0
+  pluslogm=0
+  while pos<wavs.size-checkmax
+    clist=checklist.select{|i|i<skipNum}
     # silent or not
-    curfl=(bps==8 ? (level-0x80).abs<silent : level.abs<silent)
+    curfl=if bps==8
+            r=true
+            plus=0
+            while r
+              break if plus>clist.size-1
+              i=wavs[pos+checklist[plus]]
+              level=i.ord
+              r=((level-0x80).abs<silent)
+              plus+=1
+            end
+            r
+          else
+            r=true
+            plus=0
+            while r
+              break if plus>clist.size-1
+              i=wavs[pos+clist[plus]]
+              checked+=1
+              level=i.ord
+              r=(level.abs<silent)
+              plus+=1
+            end
+            case plus
+            when 1
+               pluslogz+=1
+            when 2
+               pluslogd+=1
+            when 3..checklist.size-1
+               pluslogw+=1
+            else
+               pluslogm+=1
+            end
+            r
+          end
     if ! curfl
       # add to position list if current is over silent threshold and preceding series of data is not.
       if drop
@@ -298,9 +338,10 @@ def checklevel wavs,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
       count+=skipNumSlow
     end
     pos+=skipNum
-    checked+=1
+#    checked+=1
   end
-  lp [:checked_data,format("%.4f%",checked.to_f*100/(wavs.size-start))]
+  lp [:plusCaseLevel,pluslogz,pluslogd,pluslogw,pluslogm]
+  lp [:checked_data,format("%.4f%",checked.to_f*100/(wavs.size-start)),checked]
   co.sort_by{|c,pos|c}
 end
 
