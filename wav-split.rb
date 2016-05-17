@@ -17,6 +17,12 @@ module WavFile
       @size = @data.size
     end
   end
+  def WavFile.bitMaxR n
+    l=2**n
+    min=-l/2
+    max=-min-1
+    return max
+  end
 end
 
 def cmtChunk name,cmt=""
@@ -36,10 +42,10 @@ mycmtChunk=[]
 dropShortNum=7
 extra=9
 max=1000
-threshold=200
+thresholdPercent=0.611
 eachLength=8000
-minimumSilent=3400
-lenForCheck=minimumSilent*20
+minimumSilentMSec=18
+lenForCheckSec=2.0
 limitrate=1.3
 reptime=1
 sflag=true
@@ -58,7 +64,7 @@ opt = OptionParser.new
 opt.on('-b v',"minimum num of longSilence use") {|v| minimumUseLongSilentNum=v.to_i }
 opt.on('-B v',"(bell tone) interval wav file name") {|v| chime=v }
 opt.on('-c',"make check file mode") {|v| mkcheckfile=true }
-opt.on('-C v',"each length for make check file mode(#{lenForCheck})") {|v| lenForCheck=v.to_i }
+opt.on('-C v',"sec. for each sample in making split-point-check file mode(default: #{lenForCheckSec} sec.)") {|v| lenForCheck=v.to_f }
 opt.on('-d v',"out dir") {|v| outdir=v }
 opt.on('-D v',"drop silence minimum length") {|v| dropSilence=v.to_i }
 opt.on('-e v',"extra num to omit too short spans") {|v| extra=v.to_i }
@@ -84,9 +90,9 @@ opt.on('-P v',"print log;[1,2]") {|v|
 }
 opt.on('-r v',"limit rate") {|v| limitrate=v.to_f }
 opt.on('-s',"show raw mode") {|v| $showraw=true }
-opt.on('-S',"minimum silence length(#{minimumSilent})") {|v| minimumSilent=v.to_i }
+opt.on('-S v',"minimum silence msec.(#{minimumSilentMSec})") {|v| minimumSilentMSec=v.to_i }
 opt.on('-t v',"repeat time") {|v| reptime=v.to_i }
-opt.on('-T v',"threshold value(#{threshold})") {|v| threshold=v.to_i }
+opt.on('-T v',"threshold percent(#{thresholdPercent}%)") {|v| thresholdPercent=v.to_f }
 opt.on('-U',"don't use unpacked if possible") {|v| useOrg=false }
 opt.on('-x',"don't save") {|v| sflag=false }
 opt.on('-z v',"insert zero sound before each part; set length") {|v| zerosize=v.to_i }
@@ -243,7 +249,7 @@ end
 # then sort them by length of silence
 
 # silent: threshold
-# minimumSilent: duration of silence
+# minimumSilent: duration of silence sample length
 
 def checklevel wavs,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
   start||=0
@@ -255,7 +261,7 @@ def checklevel wavs,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
     lp "max: #{max}"
     lp "min: #{min}"
   end
-  lp [silent,start,minimumSilent]
+  lp [:threshold,silent,:start,start]
   steplong=format.bytePerSec/200+1
   stepshort=15 # format.bytePerSec/800+1
   # check at first current data then from far to near data in checklist, fibonacci-like
@@ -380,6 +386,9 @@ end
 
 tlog<<[:start,Time.now]
 wavs,bit,bps,format,dataChunk=f2data(file)
+# now int only
+threshold=WavFile.bitMaxR(bps)*thresholdPercent/100
+lp [:thr,thresholdPercent,bps,WavFile.bitMaxR(bps),threshold]
 tlog<<[:wav2data,Time.now]
 chimewav,cbit,cbps,cformat,cdataChunk=File.exist?(chime) ? f2data(chime) : false
 cpkd=""
@@ -394,8 +403,12 @@ end
 tlog<<[:chWav2data,Time.now]
 exit if pre
 
+minimumSilent=format.bytePerSec/1000*minimumSilentMSec
+lenForCheck=lenForCheckSec*(format.bytePerSec/(format.bitPerSample/8))
+lp [:silentMSec,minimumSilentMSec,:silentSampleNum,minimumSilent,:bytePerSec,format.bytePerSec]
 copos=checklevel(wavs,bps,format,threshold,st,minimumSilent,dropSilence)
 lp [:longSilentCheck,copos.size,minimumUseLongSilentNum]
+minimumUseLongSilentNum=copos.size/2 if minimumUseLongSilentNum>copos.size-1
 longSilentPos=copos[-minimumUseLongSilentNum..-1].map{|c,pos|pos}
 p :co,copos.size,:co_sort,copos[-200..-1] if $DEBUG
 
