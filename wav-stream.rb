@@ -1,6 +1,30 @@
 #!/usr/bin/ruby
 # -*- coding: utf-8 -*-
 
+require 'rubygems'
+require 'wav-file'
+
+def calcDiff ar
+  h=Hash.new(0)
+  ar.each{|i|
+    h[i]+=1
+  }
+  s=Hash.new(0)
+  last=false
+  c=0
+  h.keys.sort.each{|k|
+    #puts "#{k}: #{h[k]}"
+    if last
+      s[k-last]+=1
+    end
+    last=k
+    c+=1
+    print"," if c%1000==0
+  }
+  p [:diff_count,s.keys.sort.map{|k|"#{k}=>#{s[k]}"}]
+  return h,s
+end
+
 def wave_format_info id
 #cf. https://www.videolan.org/developers/vlc/doc/doxygen/html/vlc__codecs_8h.html
 d=%Q(
@@ -72,7 +96,13 @@ d=%Q(
   ar.each{|t,n|hs[n.hex]=t}
   hs[id]
 end
-
+#signed int max and min
+def bitMaxMin n
+  l=2**n
+  min=-l/2
+  max=-min-1
+  return max,min
+end
 module WavFile
   class BlankChunk < WavFile::Chunk
     def initialize(name)
@@ -82,7 +112,7 @@ module WavFile
     end
   end
   class BlankDataChunk < BlankChunk
-    def initialize(name)
+    def initialize
       super("data")
     end
     
@@ -93,6 +123,9 @@ module WavFile
     def dumpv
       p [:bps_si_id_un_pk_bit,@bps, @single, @id, @unpack, @pack,@bit]
     end
+    def bitFloat
+      @id==3
+    end
     def setFormat format
       @bps= format.bitPerSample
       @single=@bps/8
@@ -101,6 +134,11 @@ module WavFile
       @unsigned=(@bps==8)
       @unpack=:unpack0
       @pack=:pack0
+      setPackEnv
+      #@force=true
+      (p "unimplemented bitPerSec(#{@bps})";raise) if @single*8!=@bps && ! @force
+    end
+    def setPackEnv
       case @bps
       when 16
         @bit = 's*'
@@ -110,13 +148,13 @@ module WavFile
         @min=0
         @max=0xff
       when 32
-        if @id==3
+        if self.bitFloat
           @bit = 'e*'
         else
           @bit = 'l*' #?
         end
       when 64
-        if @id==3
+        if self.bitFloat
           @bit = 'E*'
         else
           @bit = 'q*' #?
@@ -125,16 +163,42 @@ module WavFile
         @bit = 'l*'
         @unpack=:unpack24
         @pack=:pack24
+        @max,@min=bitMaxMin(24)
+      when 12
+        @bit = 'B*'
+        @unpack=:unpack12
+        @pack=:pack12
+        @max,@min=bitMaxMin(12)
       end
     end
     def unpack24 d
-      d.scan(/.../m).map {|s| (0.chr+s).unpack(@bit)}.flatten
+      #d.scan(/.../m).map {|s| (0.chr+s).unpack(@bit)}.flatten
+      [*0...d.size/3].map{|i| d.slice(i*3,3)}.map{|s|
+        r= (0.chr+s).unpack(@bit)[0]
+        r/0x100
+      }.flatten
+    end
+    def unpack12 d
+      x0="0000"
+      x1="1111"
+      d.scan(/../m).map {|s| 
+        t=s.unpack('B*')[0].scan(/.{12}/m)
+        t=t.map{|pre,i|i}
+        t.map{|i|
+          x=i[4..4]=="0" ? x0 : x1
+          [(x+i)].pack('B*').unpack('s*')
+        }
+      }.flatten
     end
     def unpack0 d
       d.unpack(@bit)
     end
     def pack24 d
-      [d].pack(@bit)[1..-1]
+      [d*0x100].pack(@bit)[1..-1]
+      #[d].pack(@bit)[0..-2]
+    end
+    def pack12 d
+      [d].pack('s*')
     end
     def pack0 d
       [d].pack(@bit)
@@ -150,7 +214,9 @@ module WavFile
       self.unpack(@data[from,@single*len])
     end
     def unpackAll
-      self.unpack(@data)
+      r=self.unpack(@data)
+      calcDiff(r) 
+      r
     end
     def boost d,rate
       d=(@unsigned ? (d-@center)*rate+@center : d*rate)
@@ -162,6 +228,12 @@ module WavFile
       self.pack(d)
     end
   end
+  def WavFile.bitMaxR n
+    l=2**n
+    min=-l/2
+    max=-min-1
+    return max
+  end
 end
 
 def cmtChunk name,cmt=""
@@ -170,5 +242,4 @@ def cmtChunk name,cmt=""
   exChunk.data=cmt.toutf8.force_encoding("ASCII-8BIT")
   exChunk
 end
-
 

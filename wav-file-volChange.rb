@@ -10,7 +10,7 @@ require './wav-stream'
 
 file=ARGV.shift
 rate=ARGV.shift.to_f
-(puts "please set volume rate over 0.";exit) if rate==0
+(puts "please set volume rate not 0.";exit) if rate==0
 
 f = open(file,"rb")
 format = WavFile::readFormat(f)
