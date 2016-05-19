@@ -386,8 +386,9 @@ end
 
 tlog<<[:start,Time.now]
 wavs,bit,bps,format,dataChunk=f2data(file)
-# now int only
-threshold=WavFile.bitMaxR(bps)*thresholdPercent/100
+mx=WavFile.bitMaxR(bps)
+mx=1 if format.id==3 # ?; float
+threshold=mx*thresholdPercent/100
 lp [:thr,thresholdPercent,bps,WavFile.bitMaxR(bps),threshold]
 tlog<<[:wav2data,Time.now]
 chimewav,cbit,cbps,cformat,cdataChunk=File.exist?(chime) ? f2data(chime) : false
@@ -455,7 +456,7 @@ play<<[wavs.size,rest] if play[-1][0]!=wavs.size
 
 tlog<<[:basecheck,Time.now]
 
-# reject too short silence by length order
+# reject too short block by length order
 minus=play.sort_by{|po,step|step}[0..extra]
 lp [:extra,extra,minus]
 minus=minus.map{|po,st|po}-[0,wavs.size]

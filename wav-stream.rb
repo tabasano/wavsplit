@@ -104,7 +104,33 @@ def bitMaxMin n
   return max,min
 end
 module WavFile
-  class BlankChunk < WavFile::Chunk
+
+  class FBuffer
+    attr_accessor :bufferSizeLimit
+    def initialize(f)
+      @out=f
+      @buffer=""
+      @bufferSizeLimit=1000
+      @size=0
+    end
+    def write d
+      @out.write(d)
+      @size+=d.size
+    end
+    def << d
+      @buffer<<d
+      if @buffer.size>@bufferSizeLimit
+        self.write(@buffer)
+        @buffer=""
+      end
+    end
+    def finalize
+      self.write(@buffer)
+      @size
+    end
+  end
+
+  class BlankChunk < Chunk
     def initialize(name)
       @name = name[0...4]
       @data = ""
@@ -123,7 +149,7 @@ module WavFile
     def dumpv
       p [:bps_si_id_un_pk_bit,@bps, @single, @id, @unpack, @pack,@bit]
     end
-    def bitFloat
+    def isFloat
       @id==3
     end
     def setFormat format
@@ -148,13 +174,13 @@ module WavFile
         @min=0
         @max=0xff
       when 32
-        if self.bitFloat
+        if self.isFloat
           @bit = 'e*'
         else
           @bit = 'l*' #?
         end
       when 64
-        if self.bitFloat
+        if self.isFloat
           @bit = 'E*'
         else
           @bit = 'q*' #?
@@ -214,9 +240,7 @@ module WavFile
       self.unpack(@data[from,@single*len])
     end
     def unpackAll
-      r=self.unpack(@data)
-      calcDiff(r) 
-      r
+      self.unpack(@data)
     end
     def boost d,rate
       d=(@unsigned ? (d-@center)*rate+@center : d*rate)
@@ -233,6 +257,35 @@ module WavFile
     min=-l/2
     max=-min-1
     return max
+  end
+  def WavFile.writeFormat(f, format,chunkDataSizes)
+    header_file_size = 4
+    chunkDataSizes.each{|c|
+      header_file_size += c + 8
+    }
+    f.write('RIFF' + [header_file_size].pack('V') + 'WAVE')
+    f.write("fmt ")
+    f.write([format.to_bin.size].pack('V'))
+    f.write(format.to_bin)
+  end
+  def WavFile.rewriteChunkDataSize(f,dsize,csizePos)
+    f.seek(csizePos)
+    f.write([dsize].pack('V'))
+  end
+  def WavFile.writeChunk(f,name,dsize)
+    f.write(name)
+    csizePos=f.pos
+    f.write([dsize].pack('V'))
+    out=FBuffer.new(f)
+    yield out,csizePos
+    s=out.finalize
+    tpos=f.pos
+    if dsize!=s
+      f.seek(csizePos,IO::SEEK_SET)
+      f.write([s].pack('V'))
+      f.seek(tpos,IO::SEEK_SET)
+    end
+    return s
   end
 end
 
