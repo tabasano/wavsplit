@@ -238,15 +238,10 @@ end
 def checkspan max,silent,bps
   r=true
   co=0
-  while r
-    break if co>max
-    i=yield(co)
-    level=i.ord
-    if bps==8
-      r=((level-0x80).abs<silent)
-    else
-      r=(level.abs<silent)
-    end
+  center=zeroby(bps)
+  while r && co<=max
+    level=yield(co)
+    r=((level-center).abs<silent)
     co+=1
   end
   return r,co
@@ -333,7 +328,11 @@ def f2data file,silent=false
   p [:_unpack,Time.now-st] if ! $silent
   [wavs,dataChunk.bit,format.bitPerSample,format,dataChunk]
 end
-def trwav wav,bps,tbps
+def trwav wav,format,tformat
+  bps=format.bitPerSample
+  tbps=tformat.bitPerSample
+  id=format.id
+  tid=tformat.id
   if not wav
     false
   elsif tbps==bps
@@ -342,6 +341,12 @@ def trwav wav,bps,tbps
     wav.map{|i|(i-0x80)*0x100}
   elsif bps==16 && tbps==8
     wav.map{|i|i/0x100+0x80}
+  elsif bps==16 && tid==3
+    mx=WavFile.bitMaxR(bps)
+    wav.map{|i|i.to_f/mx}
+  elsif bps==8 && tid==3
+    mx=WavFile.bitMaxR(bps)
+    wav.map{|i|(i-0x80).to_f/mx}
   else
     p [bps,tbps]
     raise
@@ -359,7 +364,7 @@ chimewav,cbit,cbps,cformat,cdataChunk=File.exist?(chime) ? f2data(chime) : false
 cpkd=""
 if chimewav
   if cbps!=bps
-    chimewav=trwav(chimewav,cbps,bps)
+    chimewav=trwav(chimewav,cformat,format)
     cpkd=chimewav.pack(bit)
   else
     cpkd=cdataChunk.data
