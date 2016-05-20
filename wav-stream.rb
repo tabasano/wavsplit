@@ -145,7 +145,7 @@ module WavFile
   end
 
   class WavFile::Chunk
-#    attr_accessor :id, :bps
+    attr_accessor :bit
     def dumpv
       p [:bps_si_id_un_pk_bit,@bps, @single, @id, @unpack, @pack,@bit]
     end

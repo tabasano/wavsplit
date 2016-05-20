@@ -9,20 +9,9 @@ require 'rubygems'
 require 'wav-file'
 # cf. shokai.org/blog/archives/5408
 
+require './wav-stream'
+
 module WavFile
-  class BlankChunk < WavFile::Chunk
-    def initialize(name)
-      @name = name[0...4]
-      @data = ""
-      @size = @data.size
-    end
-  end
-  def WavFile.bitMaxR n
-    l=2**n
-    min=-l/2
-    max=-min-1
-    return max
-  end
 end
 
 def cmtChunk name,cmt=""
@@ -132,6 +121,7 @@ class Array
     }
     p [:total,self.last[1]-self.first[1]]
   end
+  #select some points between a and b, situated moderately sparsely
   def midval a,b,num=1
     num=num.to_i
     m=self.select{|c,pos|pos>a && pos<b}
@@ -245,25 +235,37 @@ def riffle level,silent,bps
   level.abs<silent
 end
 
+def checkspan max,silent,bps
+  r=true
+  co=0
+  while r
+    break if co>max
+    i=yield(co)
+    level=i.ord
+    if bps==8
+      r=((level-0x80).abs<silent)
+    else
+      r=(level.abs<silent)
+    end
+    co+=1
+  end
+  return r,co
+end
 # pick up series of level low points of wave stream
 # then sort them by length of silence
 
 # silent: threshold
 # minimumSilent: duration of silence sample length
 
-def checklevel wavs,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
+def checklevel dataChunk,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
   start||=0
   minimumSilent||=1000
   sectionTopSilent=minimumSilent/2
-  lp "size: #{wavs.size}"
-  if $DEBUG
-    max,min=wavs.max,wavs.min
-    lp "max: #{max}"
-    lp "min: #{min}"
-  end
+  samplesize=dataChunk.data.size/(format.bitPerSample/8)
+  lp "size: #{samplesize}"
   lp [:threshold,silent,:start,start]
-  steplong=format.bytePerSec/200+1
-  stepshort=15 # format.bytePerSec/800+1
+  steplong=format.bytePerSec/(format.bitPerSample/8)/80+1
+  stepshort=format.bytePerSec/(format.bitPerSample/8)/240+1
   # check at first current data then from far to near data in checklist, fibonacci-like
   checklist=(n=0.7;[*0..15].map{|i|n=n*1.46+1;n.round}.reverse).unshift(0,1)
   checkmax=checklist.max
@@ -286,55 +288,18 @@ def checklevel wavs,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
   skipNum=skipNumSlow
   lp [:skipNum,skipNumFast,skipNumSlow]
   pos=start if pos<start
-  pluslogz=0
-  pluslogd=0
-  pluslogw=0
-  pluslogm=0
-  while pos<wavs.size-checkmax
-    clist=checklist.select{|i|i<skipNum}
+  pluslog=Hash.new(0)
+  while pos<samplesize-checkmax
+    clist=checklist.select{|i|i<skipNum/3+1}
     # silent or not
-    curfl=if bps==8
-            r=true
-            plus=0
-            while r
-              break if plus>clist.size-1
-              i=wavs[pos+checklist[plus]]
-              level=i.ord
-              r=((level-0x80).abs<silent)
-              plus+=1
-            end
-            r
-          else
-            r=true
-            plus=0
-            while r
-              break if plus>clist.size-1
-              i=wavs[pos+clist[plus]]
-              checked+=1
-              level=i.ord
-              r=(level.abs<silent)
-              plus+=1
-            end
-            case plus
-            when 1
-               pluslogz+=1
-            when 2
-               pluslogd+=1
-            when 3..checklist.size-1
-               pluslogw+=1
-            else
-               pluslogm+=1
-            end
-            r
-          end
+    curfl,n=checkspan(clist.size-1,silent,bps){|plus| dataChunk.dataAt(pos+clist[plus]).first }
+    checked+=n
+    pluslog[n]+=1
     if ! curfl
       # add to position list if current is over silent threshold and preceding series of data is not.
-      if drop
-        rewind=skipNum
-      else
-        rewind=count>minimumSilent*2 ? minimumSilent : sectionTopSilent
-      end
       if count>minimumSilent
+        rewind=count>minimumSilent*2 ? minimumSilent : sectionTopSilent
+        rewind=skipNum if drop
         co<<[count,pos-rewind]
         skipNum=skipNumFast+rand(2)
       end
@@ -346,8 +311,8 @@ def checklevel wavs,bps,format,silent=20,start=0,minimumSilent=1000,drop=false
     pos+=skipNum
 #    checked+=1
   end
-  lp [:plusCaseLevel,pluslogz,pluslogd,pluslogw,pluslogm]
-  lp [:checked_data,format("%.4f%",checked.to_f*100/(wavs.size-start)),checked]
+  lp [:plusCaseLevel,pluslog.keys.sort.map{|k|"#{k}=>#{pluslog[k]}"}]
+  lp [:checked_data,format("%.4f%",checked.to_f*100/(samplesize-start)),checked]
   co.sort_by{|c,pos|c}
 end
 
@@ -362,12 +327,11 @@ def f2data file,silent=false
     lp format
   end
 
-  bit = 's*' if format.bitPerSample == 16 # int16_t
-  bit = 'C*' if format.bitPerSample == 8
   st=Time.now
-    wavs = dataChunk.data.unpack(bit) # read binary
+    dataChunk.setFormat(format)
+    wavs = dataChunk.unpackAll
   p [:_unpack,Time.now-st] if ! $silent
-  [wavs,bit,format.bitPerSample,format,dataChunk]
+  [wavs,dataChunk.bit,format.bitPerSample,format,dataChunk]
 end
 def trwav wav,bps,tbps
   if not wav
@@ -407,7 +371,7 @@ exit if pre
 minimumSilent=format.bytePerSec/1000*minimumSilentMSec
 lenForCheck=lenForCheckSec*(format.bytePerSec/(format.bitPerSample/8))
 lp [:silentMSec,minimumSilentMSec,:silentSampleNum,minimumSilent,:bytePerSec,format.bytePerSec]
-copos=checklevel(wavs,bps,format,threshold,st,minimumSilent,dropSilence)
+copos=checklevel(dataChunk,bps,format,threshold,st,minimumSilent,dropSilence)
 lp [:longSilentCheck,copos.size,minimumUseLongSilentNum]
 minimumUseLongSilentNum=copos.size/2 if minimumUseLongSilentNum>copos.size-1
 longSilentPos=copos[-minimumUseLongSilentNum..-1].map{|c,pos|pos}
