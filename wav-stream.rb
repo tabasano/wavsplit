@@ -205,14 +205,11 @@ module WavFile
       }.flatten
     end
     def unpack12 d
-      x0="0000"
-      x1="1111"
-      d.scan(/../m).map {|s| 
-        t=s.unpack('B*')[0].scan(/.{12}/m)
-        t=t.map{|pre,i|i}
+      # 12bit to 16bit
+      d.scan(/.../m).map {|s| 
+        t=s.unpack('B*')[0].scan(/.{12}/m).flatten
         t.map{|i|
-          x=i[4..4]=="0" ? x0 : x1
-          [(x+i)].pack('B*').unpack('s*')
+          [("0000"+i)].pack('B*').unpack('s*')
         }
       }.flatten
     end
@@ -224,7 +221,10 @@ module WavFile
       #[d].pack(@bit)[0..-2]
     end
     def pack12 d
-      [d].pack('s*')
+      # 16bit to 12bit then pack them
+      d=[d] if d.class != Array
+      s=d.pack('s*').unpack('B*').first
+      [s.scan(/.{4}(.{12})/).flatten.join].pack('B*')
     end
     def pack0 d
       [d].pack(@bit)

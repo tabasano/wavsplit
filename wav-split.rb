@@ -335,7 +335,7 @@ def trwav wav,format,tformat
   tid=tformat.id
   if not wav
     false
-  elsif tbps==bps
+  elsif tbps==bps && id==tid
     wav
   elsif bps==8 && tbps==16
     wav.map{|i|(i-0x80)*0x100}
