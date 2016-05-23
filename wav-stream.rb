@@ -103,6 +103,16 @@ def bitMaxMin n
   max=-min-1
   return max,min
 end
+def lcmByBit odd,bit
+  a=odd/bit if re==0
+  odd.times{|i|
+    if ((i+1)*bit)%odd==0
+      a=i+1
+      break
+    end
+  }
+  [a,bit*a/odd]
+end
 module WavFile
 
   class FBuffer
@@ -204,6 +214,17 @@ module WavFile
         r/0x100
       }.flatten
     end
+    def unpackByBit d,odd
+      # odd(1-15) bit to 16bit
+      byte,step=WavFile.lcm odd
+      adjust="0"*(16-odd)
+      d.scan(/.{#{byte}}/m).map {|s| 
+        t=s.unpack('B*')[0].scan(/.{#{odd}}/m).flatten
+        t.map{|i|
+          [(adjust+i)].pack('B*').unpack('s*')
+        }
+      }.flatten
+    end
     def unpack12 d
       # 12bit to 16bit
       d.scan(/.../m).map {|s| 
@@ -219,6 +240,12 @@ module WavFile
     def pack24 d
       [d*0x100].pack(@bit)[1..-1]
       #[d].pack(@bit)[0..-2]
+    end
+    def packByBit d,odd
+      # 16bit to odd(1-15) bit then pack them. no adjust
+      d=[d] if d.class != Array
+      s=d.pack('s*').unpack('B*').first
+      [s.scan(/.{#{16-odd}}(.{#{odd}})/).flatten.join].pack('B*')
     end
     def pack12 d
       # 16bit to 12bit then pack them
@@ -257,6 +284,9 @@ module WavFile
     min=-l/2
     max=-min-1
     return max
+  end
+  def WavFile.lcm odd
+    lcmByBit odd,16
   end
   def WavFile.writeFormat(f, format,chunkDataSizes)
     header_file_size = 4
