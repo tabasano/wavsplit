@@ -9,6 +9,11 @@ module WavFile
 end
 
 file=ARGV.shift
+highv=ARGV.shift
+stepmaxper=ARGV.shift
+highv=highv.to_i if highv
+stepmaxper=stepmaxper.to_f if stepmaxper
+p [file,highv,stepmaxper]
 
 f = open(file,"rb")
 format = WavFile::readFormat(f)
@@ -22,10 +27,50 @@ id= format.id
 
 dataChunk.setFormat(format)
 
-def save1bitWav2soft f,format,dataChunk,stepmax=false
+class HighF < Array
+  def initialize s=false
+    @size=(s ? s: 4000)
+    @ar=[]
+    @count=0
+    @replimit=@size*2
+  end
+  def adjust n=0
+    if n>@size/3
+      @ar.shift(@ar.size-n)
+    elsif @ar.size>@size
+      @ar.shift(@ar.size-@size)
+    end
+  end
+  def << d
+    @ar<<d
+    self.adjust
+  end
+  def add ar
+    @ar+=ar
+    self.adjust(ar.size)
+    @count=0
+  end
+  def down
+    @count+=1
+    return if @count%40>0
+  end
+  def get n
+    @count+=1
+    if @count>@replimit
+      print ":replim"
+      @ar=[] 
+      @count=0
+    end
+    @ar[n%(1+@ar.size)]||0
+  end
+end
+def save1bitWav2soft f,format,dataChunk,stepmax=false,highv=50
   wavs = dataChunk.unpackAll
+  (puts"this is not 1bit wav file.";exit) if wavs.uniq.size>2
+  highv||=50
+  nwavs=[]
   p [:w,wavs.size]
-  p wavs.max,wavs.min,wavs[0..20],wavs[-20..-1]
+  #p wavs.max,wavs.min,wavs[0..20],wavs[-20..-1]
 
   print"save!" if $DEBUG
   open(f, "wb"){|out|
@@ -33,34 +78,42 @@ def save1bitWav2soft f,format,dataChunk,stepmax=false
     dsize=wavs.size*format.bitPerSample/8
     WavFile::writeFormat(out, format,[dsize])
     h,l=bitMaxMin(format.bitPerSample).map{|i|i/2}
-    stepmax=h*0.03 if ! stepmax
-    bigw=(format.bytePerSec/(format.bitPerSample/8))/100.0
+    stepmax=0.03 if ! stepmax
+    stepmax=h*stepmax
+    admax=stepmax*0.3
+    bigw=(format.bytePerSec/(format.bitPerSample/8))/400.0
     echoPer=dsize/200
+    highFreqBuf=HighF.new(1000)
     i=0
-    last=wavs[0]
       while i<wavs.size-1
-        v=last
+        v= wavs[i]
         c=0
         while i+c<wavs.size-1
           c+=1
-          break if not (wavs[i+c]==last)
+          break if not (wavs[i+c]==v)
         end
-        last=wavs[i+c]
-        v=v*((c+200)/(bigw+200)) if c<bigw
+        v=v*((c+highv)/(bigw+highv)) if c<bigw
         step=v/(c/2.0)
-        step=(step>0 ? stepmax : -stepmax) if step.abs>stepmax
+        step=(step>0 ? stepmax : -stepmax) if c<bigw*5.5 && step.abs>stepmax
+        vmax=step*(c/2)
+        cstep=0.0
           c.times{|u|
-            val=(u<c/2 ? u*step : (c-u)*step)
-            wavs[i+u]=val
-            print",",val,"/",wavs[i+u],"[#{i},#{u}]" if (i+u)%echoPer==0
+            cstep+=Math::PI/c
+            val=Math.sin(cstep).abs*vmax
+            val+=((wavs[highFreqBuf.get(i+u)]||0)>0 ? admax : -admax) if c>1000
+            nwavs<<val
+            print",",val if (i+u)%echoPer==0
           }
+        if c<100
+          highFreqBuf.add([*i..(i+c)])
+        end
         i+=c
       end
     puts"/"
-    p wavs.max,wavs.min,wavs[0..20],wavs[-20..-1]
+    p nwavs.max,nwavs.min,nwavs[0..20],nwavs[-20..-1]
     c=0
     WavFile::writeChunk(out,"data",dsize){|f,pos|
-      wavs.each{|v|
+      nwavs.each{|v|
         f << dataChunk.pack(v)
         c+=1
         print"," if c%echoPer==0
@@ -72,4 +125,4 @@ def save1bitWav2soft f,format,dataChunk,stepmax=false
 end
 
 file="out.wav"
-save1bitWav2soft file,format,dataChunk
+save1bitWav2soft file,format,dataChunk,stepmaxper,highv
