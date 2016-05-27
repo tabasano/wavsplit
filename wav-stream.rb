@@ -279,10 +279,11 @@ module WavFile
       self.pack(d)
     end
   end
-  def WavFile.bitMaxR n
+  def WavFile.bitMaxR n,id
     l=2**n
     min=-l/2
     max=-min-1
+    max=1.0 if id==3
     return max
   end
   def WavFile.lcm odd

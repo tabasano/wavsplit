@@ -259,8 +259,10 @@ def checklevel dataChunk,bps,format,silent=20,start=0,minimumSilent=1000,drop=fa
   samplesize=dataChunk.data.size/(format.bitPerSample/8)
   lp "size: #{samplesize}"
   lp [:threshold,silent,:start,start]
-  steplong=format.bytePerSec/(format.bitPerSample/8)/80+1
-  stepshort=format.bytePerSec/(format.bitPerSample/8)/240+1
+  # check data about every 1/80 sec.
+  SamplePerSec=format.bytePerSec/(format.bitPerSample/8)
+  steplong=SamplePerSec/80+1
+  stepshort=SamplePerSec/240+1
   # check at first current data then from far to near data in checklist, fibonacci-like
   checklist=(n=0.7;[*0..15].map{|i|n=n*1.46+1;n.round}.reverse).unshift(0,1)
   checkmax=checklist.max

@@ -5,8 +5,6 @@ require 'rubygems'
 require 'wav-file'
 require './wav-stream'
 
-module WavFile
-end
 
 file=ARGV.shift
 highv=ARGV.shift
@@ -83,8 +81,10 @@ def save1bitWav2soft f,format,dataChunk,stepmax=false,highv=50
     admax=stepmax*0.3
     bigw=(format.bytePerSec/(format.bitPerSample/8))/400.0
     echoPer=dsize/200
+    x=0
     highFreqBuf=HighF.new(1000)
-    i=0
+    WavFile::writeChunk(out,"data",dsize){|f,pos|
+      i=0
       while i<wavs.size-1
         v= wavs[i]
         c=0
@@ -95,29 +95,30 @@ def save1bitWav2soft f,format,dataChunk,stepmax=false,highv=50
         v=v*((c+highv)/(bigw+highv)) if c<bigw
         step=v/(c/2.0)
         step=(step>0 ? stepmax : -stepmax) if c<bigw*5.5 && step.abs>stepmax
-        vmax=step*(c/2)
+        vmax=step*(c/2.0)
         cstep=0.0
-          c.times{|u|
-            cstep+=Math::PI/c
+        val=0
+        c.times{|u|
+          if c>2
             val=Math.sin(cstep).abs*vmax
-            val+=((wavs[highFreqBuf.get(i+u)]||0)>0 ? admax : -admax) if c>1000
-            nwavs<<val
-            print",",val if (i+u)%echoPer==0
-          }
+          elsif c==2
+            val=vmax*u
+          else
+            val=vmax
+          end
+          if c>1000
+            tmp=wavs[highFreqBuf.get(i+u)]||0
+            val+=tmp #(tmp>0 ? admax : -admax) 
+          end
+          f << dataChunk.pack(val)
+          cstep+=Math::PI/c
+          print",",val if (i+u)%echoPer==0
+        }
         if c<100
           highFreqBuf.add([*i..(i+c)])
         end
         i+=c
       end
-    puts"/"
-    p nwavs.max,nwavs.min,nwavs[0..20],nwavs[-20..-1]
-    c=0
-    WavFile::writeChunk(out,"data",dsize){|f,pos|
-      nwavs.each{|v|
-        f << dataChunk.pack(v)
-        c+=1
-        print"," if c%echoPer==0
-      }
     }
   }
   print"..\n" if $DEBUG
