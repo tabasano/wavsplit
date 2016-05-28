@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 require 'rubygems'
+require "tempfile"
 require 'wav-file'
 
 
@@ -9,64 +10,75 @@ module WavFile
 
   class Buffer
     attr_accessor :buffer
-    def initialize(limit=1000)
-      @buffer=[]
+    def initialize(step=2)
+      @buffer=Tempfile.new("buffer")
+      @buffer.binmode
+      @size=0
+      @step=step
     end
     def << d
       @buffer<<d
     end
     def [] n
-      @buffer[n]
+      @buffer.seek(@step*n)
+      @buffer.read(@step)
     end
-    def shift n
-      @buffer.shift(n)
+    def put pos,d
+      @buffer.seek(@step*pos)
+      @buffer.write(d)
+    end
+    def close!
+      @path=@buffer.path
+      @buffer.close!
+      p [:close_buffer,@path,FileTest.exist?(@path) ? :extist : :not_exist]
+    end
+    def reopen
+      @buffer.close
+      @buffer.open
+      @size=@buffer.size/@step
     end
     def size
-      @buffer.size
+      @size
     end
   end
   class FBufferLR
     attr_accessor :bufferSizeLimit,:bufferL,:bufferR
-    def initialize(f,limit=1000)
+    def initialize(f)
       @out=f
       @bufferL=Buffer.new
       @bufferR=Buffer.new
-      @bufferSizeLimit=limit
+      @blank=".."
       @size=0
     end
     def write d
       @out.write(d)
       @size+=d.size
     end
-    def writeLR s=false
-      s=[@bufferL.size,@bufferR.size].max if ! s
-      blank=".."
-      s.times{|i|
-        @out.write(@bufferL[i]||blank)
-        @size+=1
-        @out.write(@bufferR[i]||blank)
-        @size+=1
-      }
-      @bufferL.shift(s)
-      @bufferR.shift(s)
-    end
     def << d
       l,r=d
       @bufferL<<l if l
       @bufferR<<r if r
-      usize=[@bufferL.size,@bufferR.size].min
-      if usize>@bufferSizeLimit
-        self.writeLR(usize)
-      end
     end
-    def flash
-      self << []
+    def seekWriteR d,n
+      @bufferR.reopen
+      @bufferR.put n,d
     end
-    def flashAll
-      self.writeLR
+    def seekWriteL d,n
+      @bufferL.reopen
+      @bufferL.put n,d
     end
     def finalize
-      self.flashAll
+      @bufferL.reopen
+      @bufferR.reopen
+      open(@out,"wb"){|f|
+        [@bufferL.size,@bufferR.size].max.times{|i|
+          f.write @bufferL[i]||@blank
+          f.write @bufferR[i]||@blank
+        }
+      }
+      @size=@bufferL.size*2
+      @bufferL.close!
+      @bufferR.close!
       @size
     end
   end
@@ -74,20 +86,20 @@ end
 
 include WavFile
 
-r=[*1..1000].map{|i|"R#{i}"}
-l=[*1..1000].map{|i|"L#{i}"}
+r=[*0..100].map{|i|"R#{i.chr}"}*10
+l=[*0..100].map{|i|"L#{i.chr}"}*10
 fi="test.txt"
 f=open(fi,"wb")
-lr=FBufferLR.new(f,5)
+lr=FBufferLR.new(f)
 lr.bufferL << l.shift
 lr.bufferR << r.shift
 lr.bufferR << r.shift
 lr.bufferR << r.shift
 lr.bufferR << r.shift
-lr.flash
-lr << ["L_","R_"]
+lr << ["LX","RX"]
 lr.bufferL << l.shift
-lr << ["L/","R/"]
+lr << ["LY","RY"]
+lr << ["LZ","RZ"]
 lr.bufferL << l.shift
 lr.bufferL << l.shift
 lr.bufferL << l.shift
@@ -102,13 +114,21 @@ lr.bufferL << l.shift
     lr << ["L/","R/"]
   end
 }
+lr.seekWriteR"RS",4
+lr.seekWriteR"RS",8
+lr.seekWriteL"LS",2
+lr.seekWriteR"Rs",5
 lr.finalize
 f.close
 data=open(fi,"rb"){|f|f.read}
-lr=data.scan(/[LR][0-9]+|[LR][_\/]|\.\./)
+lr=data.scan(/../m)
 l,r=[],[]
 (lr.size/2).times{|i|
   l<<lr.shift
   r<<lr.shift
 }
-p data,l,r
+p :raw_data,data
+puts
+p :left,l
+puts
+p :right,r
