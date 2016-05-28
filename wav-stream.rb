@@ -254,7 +254,8 @@ module WavFile
       [s.scan(/.{4}(.{12})/).flatten.join].pack('B*')
     end
     def pack0 d
-      [d].pack(@bit)
+      d=[d] if d.class != Array
+      d.pack(@bit)
     end
     def pack d
       self.method(@pack).call(d)

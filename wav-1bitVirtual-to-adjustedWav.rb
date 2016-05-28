@@ -13,11 +13,14 @@ highv=highv.to_i if highv
 stepmaxper=stepmaxper.to_f if stepmaxper
 p [file,highv,stepmaxper]
 
-f = open(file,"rb")
-format = WavFile::readFormat(f)
-dataChunk = WavFile::readDataChunk(f)
-f.close
-
+def wread file
+  f = open(file,"rb")
+  format = WavFile::readFormat(f)
+  dataChunk = WavFile::readDataChunk(f)
+  f.close
+  return format,dataChunk
+end
+format,dataChunk=wread(file)
 puts format
 
 bps= format.bitPerSample
@@ -62,8 +65,17 @@ class HighF < Array
     @ar[n%(1+@ar.size)]||0
   end
 end
-def save1bitWav2soft f,format,dataChunk,stepmax=false,highv=50
+def save1bitWav2soft file,format,dataChunk,stepmax=false,highv=50
   wavs = dataChunk.unpackAll
+  if format.channel==2
+    tmp=[]
+    tmp2=[]
+    (wavs.size/2).times{|i|
+      tmp<<wavs[i*2]
+      tmp2<<wavs[i*2+1]
+    }
+    wavs=tmp+tmp2
+  end
   (puts"this is not 1bit wav file.";exit) if wavs.uniq.size>2
   highv||=50
   nwavs=[]
@@ -71,7 +83,7 @@ def save1bitWav2soft f,format,dataChunk,stepmax=false,highv=50
   #p wavs.max,wavs.min,wavs[0..20],wavs[-20..-1]
 
   print"save!" if $DEBUG
-  open(f, "wb"){|out|
+  open(file, "wb"){|out|
    # f.binmode
     dsize=wavs.size*format.bitPerSample/8
     WavFile::writeFormat(out, format,[dsize])
@@ -121,6 +133,21 @@ def save1bitWav2soft f,format,dataChunk,stepmax=false,highv=50
       end
     }
   }
+  if format.channel==2
+p :restart
+    format,dataChunk=wread(file)
+    dataChunk.setFormat(format)
+    wavs = dataChunk.unpackAll
+    tmp=[]
+    (wavs.size/2).times{|i|
+      tmp<<wavs[i]
+      tmp<<wavs[wavs.size/2+i]
+    }
+    open(file, "wb"){|out|
+      dataChunk.data=dataChunk.pack(tmp)
+      WavFile::write(out, format, [dataChunk].flatten)
+    }
+  end
   print"..\n" if $DEBUG
   puts
 end

@@ -7,12 +7,30 @@ require 'wav-file'
 
 module WavFile
 
+  class Buffer
+    attr_accessor :buffer
+    def initialize(limit=1000)
+      @buffer=[]
+    end
+    def << d
+      @buffer<<d
+    end
+    def [] n
+      @buffer[n]
+    end
+    def shift n
+      @buffer.shift(n)
+    end
+    def size
+      @buffer.size
+    end
+  end
   class FBufferLR
-    attr_accessor :bufferSizeLimit
+    attr_accessor :bufferSizeLimit,:bufferL,:bufferR
     def initialize(f,limit=1000)
       @out=f
-      @bufferL=[]
-      @bufferR=[]
+      @bufferL=Buffer.new
+      @bufferR=Buffer.new
       @bufferSizeLimit=limit
       @size=0
     end
@@ -31,12 +49,6 @@ module WavFile
       }
       @bufferL.shift(s)
       @bufferR.shift(s)
-    end
-    def addL d
-      @bufferL<<d
-    end
-    def addR d
-      @bufferR<<d
     end
     def << d
       l,r=d
@@ -67,29 +79,36 @@ l=[*1..1000].map{|i|"L#{i}"}
 fi="test.txt"
 f=open(fi,"wb")
 lr=FBufferLR.new(f,5)
-lr.addL l.shift
-lr.addR r.shift
-lr.addR r.shift
-lr.addR r.shift
-lr.addR r.shift
+lr.bufferL << l.shift
+lr.bufferR << r.shift
+lr.bufferR << r.shift
+lr.bufferR << r.shift
+lr.bufferR << r.shift
 lr.flash
 lr << ["L_","R_"]
-lr.addL l.shift
+lr.bufferL << l.shift
 lr << ["L/","R/"]
-lr.addL l.shift
-lr.addL l.shift
-lr.addL l.shift
-lr.addL l.shift
-lr.addL l.shift
+lr.bufferL << l.shift
+lr.bufferL << l.shift
+lr.bufferL << l.shift
+lr.bufferL << l.shift
+lr.bufferL << l.shift
 100.times{
   if rand(10)>5
-    lr.addL l.shift
+    lr.bufferL << l.shift
   elsif rand(10)>5
-    lr.addR r.shift
+    lr.bufferR << r.shift
   else
     lr << ["L/","R/"]
   end
 }
 lr.finalize
 f.close
-p open(fi,"rb"){|f|f.read}
+data=open(fi,"rb"){|f|f.read}
+lr=data.scan(/[LR][0-9]+|[LR][_\/]|\.\./)
+l,r=[],[]
+(lr.size/2).times{|i|
+  l<<lr.shift
+  r<<lr.shift
+}
+p data,l,r
