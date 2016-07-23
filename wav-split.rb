@@ -58,6 +58,7 @@ opt.on('-d v',"out dir") {|v| outdir=v }
 opt.on('-D v',"drop silence minimum length") {|v| dropSilence=v.to_i }
 opt.on('-e v',"extra num to omit too short spans") {|v| extra=v.to_i }
 opt.on('-E v',"dropShort num to omit too short spans") {|v| dropShortNum=v.to_i }
+opt.on('-f v',"fold byte length each binding") {|v| $fold=v.to_i }
 opt.on('-j',"out-join mode") {|v| $join=true }
 opt.on('-l v',"each length minimum (#{eachLength})") {|v| eachLength=v.to_i }
 opt.on('-m v',"split num") {|v| max=v.to_i }
@@ -217,6 +218,39 @@ class Array
     }
     self
   end
+  def wfold chunk,len=10
+    r=[]
+    tail=false
+    self.each{|i|
+      # fold only in case stream is long enough
+      if i.size>len*4
+        if tail
+          r<<fold(tail,i[0..len],chunk)
+          r<<i[len..-len-1]
+          tail=i[-len..-1]
+        else
+          r<<i[0..-len-1]
+          tail=i[-len..-1]
+        end
+      else
+        r<<tail if tail
+        r<<i
+        tail=false
+      end
+    }
+    r<<tail if tail
+    r
+  end
+end
+def fold a,b,chunk
+  r=[]
+  aunpack=chunk.unpack0(a)
+  bunpack=chunk.unpack0(b)
+  aunpack.size.times{|i|
+    r<<(aunpack[i]+bunpack[i])/2
+  }
+  STDERR.print ":f" if $DEBUG || ! $silent
+  chunk.pack0(r)
 end
 def zeroby bps
   bps==8 ? 0x80 : 0
@@ -260,9 +294,9 @@ def checklevel dataChunk,bps,format,silent=20,start=0,minimumSilent=1000,drop=fa
   lp "size: #{samplesize}"
   lp [:threshold,silent,:start,start]
   # check data about every 1/80 sec.
-  SamplePerSec=format.bytePerSec/(format.bitPerSample/8)
-  steplong=SamplePerSec/80+1
-  stepshort=SamplePerSec/240+1
+  samplePerSec=format.bytePerSec/(format.bitPerSample/8)
+  steplong=samplePerSec/80+1
+  stepshort=samplePerSec/240+1
   # check at first current data then from far to near data in checklist, fibonacci-like
   checklist=(n=0.7;[*0..15].map{|i|n=n*1.46+1;n.round}.reverse).unshift(0,1)
   checkmax=checklist.max
@@ -357,7 +391,7 @@ end
 
 tlog<<[:start,Time.now]
 wavs,bit,bps,format,dataChunk=f2data(file)
-mx=WavFile.bitMaxR(bps)
+mx=WavFile.bitMaxR(bps,format.id)
 mx=1 if format.id==3 # ?; float
 threshold=mx*thresholdPercent/100
 lp [:thr,thresholdPercent,bps,WavFile.bitMaxR(bps),threshold]
@@ -508,7 +542,14 @@ log<<[:pksize,pksize]
 if sflag && $join
   name="#{file}_split-join.wav"
   name="#{outdir}/#{File.basename(name)}" if outdir
-  bc.data = pkd.join
+  if $fold
+    adjust=format.channel*(format.bitPerSample/8)
+    $fold=$fold/adjust*adjust
+    $fold=adjust if $fold==0
+    bc.data = pkd.wfold(dataChunk,$fold).join
+  else
+    bc.data = pkd.join
+  end
   ex=mycmtChunk.map{|t,v|cmtChunk(t,v)}
   save name,format,[bc,ex]
 end

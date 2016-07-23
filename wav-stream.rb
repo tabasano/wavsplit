@@ -280,7 +280,7 @@ module WavFile
       self.pack(d)
     end
   end
-  def WavFile.bitMaxR n,id
+  def WavFile.bitMaxR n,id=1
     l=2**n
     min=-l/2
     max=-min-1
