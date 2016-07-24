@@ -58,7 +58,7 @@ opt.on('-d v',"out dir") {|v| outdir=v }
 opt.on('-D v',"drop silence minimum length") {|v| dropSilence=v.to_i }
 opt.on('-e v',"extra num to omit too short spans") {|v| extra=v.to_i }
 opt.on('-E v',"dropShort num to omit too short spans") {|v| dropShortNum=v.to_i }
-opt.on('-f v',"fold byte length each binding") {|v| $fold=v.to_i }
+opt.on('-f v',"fold sec. length in each binding") {|v| $fold=v.to_f }
 opt.on('-j',"out-join mode") {|v| $join=true }
 opt.on('-l v',"each length minimum (#{eachLength})") {|v| eachLength=v.to_i }
 opt.on('-m v',"split num") {|v| max=v.to_i }
@@ -221,11 +221,12 @@ class Array
   def wfold chunk,len=10
     r=[]
     tail=false
+    max,min=bitMaxMin(chunk.bps)
     self.each{|i|
       # fold only in case stream is long enough
       if i.size>len*4
         if tail
-          r<<fold(tail,i[0..len],chunk)
+          r<<fold(tail,i[0..len],chunk,max,min)
           r<<i[len..-len-1]
           tail=i[-len..-1]
         else
@@ -242,15 +243,24 @@ class Array
     r
   end
 end
-def fold a,b,chunk
+def adjust v,max,min
+  if v>max
+    max
+  elsif v<min
+    min
+  else
+    v
+  end
+end
+def fold a,b,chunk,max,min
   r=[]
   aunpack=chunk.unpack0(a)
   bunpack=chunk.unpack0(b)
   aunpack.size.times{|i|
-    r<<(aunpack[i]+bunpack[i])/2
+    r<<adjust(aunpack[i]+bunpack[i],max,min)
   }
   STDERR.print ":f" if $DEBUG || ! $silent
-  chunk.pack0(r)
+  chunk.pack(r)
 end
 def zeroby bps
   bps==8 ? 0x80 : 0
@@ -543,6 +553,7 @@ if sflag && $join
   name="#{file}_split-join.wav"
   name="#{outdir}/#{File.basename(name)}" if outdir
   if $fold
+    $fold=($fold*format.bytePerSec).to_i
     adjust=format.channel*(format.bitPerSample/8)
     $fold=$fold/adjust*adjust
     $fold=adjust if $fold==0

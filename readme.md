@@ -20,6 +20,13 @@ split sound.wav to about max 42 parts, repeat them 3 times, then join them.
 remove long silence spans, then join them.
 
 
+```
+ > ruby wav-split.rb -m 42 -j -t 1 -D 6000 -f 0.3 sound.wav
+```
+in addition to above, fold each binding by 0.3 sec.
+a following sound starts before its previous one ends completely.
+
+
 ---------------
 
 cf. 
