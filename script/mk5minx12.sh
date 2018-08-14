@@ -1,9 +1,12 @@
 #!/bin/zsh
 mp=$1
 scrdir=~/git/wavsplit
-len=300
+minute=5
+len=$((60*$minute))
 scr='ffmpeg -i '$mp
-for i in {1..12}
+sec=`python mp3sec.py $mp`
+count=$(( $sec/60/$minute+1 ))
+for i in {1..$count}
 do
     wav=org$i.wav
     st=$((i-1))
@@ -16,7 +19,7 @@ ${=scr}
 wavdir=$(pwd)
 cd $scrdir
 
-for i in {1..12}
+for i in {1..$count}
 do
     wav=org$i.wav
     file=$wavdir/$wav
