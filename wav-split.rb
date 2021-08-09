@@ -353,7 +353,7 @@ def checklevel dataChunk,bps,format,silent=20,start=0,minimumSilent=1000,drop=fa
 #    checked+=1
   end
   lp [:plusCaseLevel,pluslog.keys.sort.map{|k|"#{k}=>#{pluslog[k]}"}]
-  lp [:checked_data,format("%.4f%",checked.to_f*100/(samplesize-start)),checked]
+  lp [:checked_data,format("%.4f%%",checked.to_f*100/(samplesize-start)),checked]
   co.sort_by{|c,pos|c}
 end
 
