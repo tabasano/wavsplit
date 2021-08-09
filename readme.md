@@ -4,6 +4,10 @@
 > split wave file by silence, etc. 
   to repeat clear sound of narration
 
+requirement:
+```
+> gem install wav-file
+```
 
 usage:
 
