@@ -1,9 +1,5 @@
 def r file
-  dat=""
-  open(file){|f|
-    dat+=f.read
-  }
-  dat
+  File.binread(file)
 end
 def sec t
   min,sec=t.split(':')
